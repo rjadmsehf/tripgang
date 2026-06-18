@@ -92,15 +92,16 @@ export default function App() {
         
         const newReceipt = {
           id: Date.now(),
-          name: parsed.storeName || '알 수 없는 가게', // 가게 이름을 기본 제목으로 사용
+          name: parsed.storeName || '알 수 없는 가게',
           currency: parsed.currency || 'KRW',
           totalAmount: parsed.totalAmount || 0,
-          category: '미분류', // 기본 카테고리
+          category: '미분류',
           items: (parsed.items || []).map((item, idx) => ({
             id: `${Date.now()}-${idx}`,
             name: item.name,
             translatedName: item.translatedName || item.name,
-            price: item.price || 0
+            price: item.price || 0,
+            quantity: item.quantity || 1 // 개수 추가!
           })),
           assignments: {}
         };
@@ -126,26 +127,26 @@ export default function App() {
 
     if (currencyType === 'JPY') {
       sampleData = {
-        name: '이치란 라멘 도쿄점', // 기본 이름으로 가게명 지정
+        name: '이치란 라멘 도쿄점',
         currency: 'JPY',
-        totalAmount: 3200,
+        totalAmount: 4700,
         items: [
-          { id: `sample-jpy-1`, name: '醤油ラーメン', translatedName: '쇼유 라멘', price: 980 },
-          { id: `sample-jpy-2`, name: '豚骨ラーメン', translatedName: '돈코츠 라멘', price: 1050 },
-          { id: `sample-jpy-3`, name: '焼き餃자', translatedName: '야끼 교자 (만두)', price: 420 },
-          { id: `sample-jpy-4`, name: '生ビール', translatedName: '생맥주', price: 750 }
+          { id: `sample-jpy-1`, name: '醤油ラーメン', translatedName: '쇼유 라멘', price: 980, quantity: 1 },
+          { id: `sample-jpy-2`, name: '豚骨ラーメン', translatedName: '돈코츠 라멘', price: 1050, quantity: 1 },
+          { id: `sample-jpy-3`, name: '焼き餃자', translatedName: '야끼 교자 (만두)', price: 420, quantity: 1 },
+          { id: `sample-jpy-4`, name: '生ビール', translatedName: '생맥주', price: 2250, quantity: 3 } // 수량 3개 지정!
         ]
       };
     } else if (currencyType === 'CNY') {
       sampleData = {
-        name: '하이디라오 상하이점', // 기본 이름으로 가게명 지정
+        name: '하이디라오 상하이점',
         currency: 'CNY',
-        totalAmount: 168,
+        totalAmount: 188,
         items: [
-          { id: `sample-cny-1`, name: '麻辣烫 (基本)', translatedName: '마라탕 (기본)', price: 88 },
-          { id: `sample-cny-2`, name: '꿔바로우 (小)', translatedName: '꿔바로우 (소)', price: 45 },
-          { id: `sample-cny-3`, name: '青岛啤酒', translatedName: '칭따오 맥주', price: 20 },
-          { id: `sample-cny-4`, name: '可口可乐', translatedName: '코카콜라', price: 15 }
+          { id: `sample-cny-1`, name: '麻辣烫 (基本)', translatedName: '마라탕 (기본)', price: 88, quantity: 1 },
+          { id: `sample-cny-2`, name: '꿔바로우 (小)', translatedName: '꿔바로우 (소)', price: 45, quantity: 1 },
+          { id: `sample-cny-3`, name: '青岛啤酒', translatedName: '칭따오 맥주', price: 40, quantity: 2 }, // 수량 2개 지정!
+          { id: `sample-cny-4`, name: '可口可乐', translatedName: '코카콜라', price: 15, quantity: 1 }
         ]
       };
     }
@@ -155,7 +156,7 @@ export default function App() {
       name: sampleData.name,
       currency: sampleData.currency,
       totalAmount: sampleData.totalAmount,
-      category: '식비', // 샘플은 식비 카테고리로 기본 배분
+      category: '식비',
       items: sampleData.items,
       assignments: {}
     };
@@ -171,19 +172,42 @@ export default function App() {
   const toggleAssignment = (receiptId, itemId, memberName) => {
     setReceipts(receipts.map(r => {
       if (r.id !== receiptId) return r;
+      const item = r.items.find(i => i.id === itemId);
       const currentAssignments = r.assignments[itemId] || {};
       const currentCount = currentAssignments[memberName] || 0;
-      const updatedCount = currentCount > 0 ? 0 : 1;
-      return {
-        ...r,
-        assignments: {
-          ...r.assignments,
-          [itemId]: {
-            ...currentAssignments,
-            [memberName]: updatedCount
+      const currentSum = Object.values(currentAssignments).reduce((sum, val) => sum + val, 0);
+      
+      setError('');
+
+      if (currentCount > 0) {
+        // 해제는 항상 가능
+        return {
+          ...r,
+          assignments: {
+            ...r.assignments,
+            [itemId]: {
+              ...currentAssignments,
+              [memberName]: 0
+            }
           }
+        };
+      } else {
+        // 등록은 총 수량 이하일 때만 가능
+        if (currentSum + 1 > (parseInt(item.quantity) || 1)) {
+          setError(`총 품목 수량(${item.quantity}개)을 초과하여 배분할 수 없습니다.`);
+          return r;
         }
-      };
+        return {
+          ...r,
+          assignments: {
+            ...r.assignments,
+            [itemId]: {
+              ...currentAssignments,
+              [memberName]: 1
+            }
+          }
+        };
+      }
     }));
   };
 
@@ -191,16 +215,27 @@ export default function App() {
   const adjustAssignmentCount = (receiptId, itemId, memberName, delta) => {
     setReceipts(receipts.map(r => {
       if (r.id !== receiptId) return r;
+      const item = r.items.find(i => i.id === itemId);
       const currentAssignments = r.assignments[itemId] || {};
       const currentCount = currentAssignments[memberName] || 0;
-      const updatedCount = Math.max(0, currentCount + delta);
+      const currentSum = Object.values(currentAssignments).reduce((sum, val) => sum + val, 0);
+      const newCount = currentCount + delta;
+      
+      setError('');
+
+      if (delta > 0 && currentSum + delta > (parseInt(item.quantity) || 1)) {
+        setError(`총 품목 수량(${item.quantity}개)을 초과하여 배분할 수 없습니다.`);
+        return r;
+      }
+      if (newCount < 0) return r;
+      
       return {
         ...r,
         assignments: {
           ...r.assignments,
           [itemId]: {
             ...currentAssignments,
-            [memberName]: updatedCount
+            [memberName]: newCount
           }
         }
       };
@@ -215,7 +250,8 @@ export default function App() {
         id: `manual-${Date.now()}`,
         name: 'Manual Item',
         translatedName: '수동 추가 항목',
-        price: ''
+        price: '',
+        quantity: 1 // 기본 수량 1개 설정
       };
       return {
         ...r,
@@ -263,16 +299,35 @@ export default function App() {
     }));
   };
 
-  // 메뉴 가격 및 텍스트 수정
+  // 메뉴 가격, 수량 및 텍스트 수정
   const handleUpdateItemPrice = (receiptId, itemId, field, value) => {
     setReceipts(receipts.map(r => {
       if (r.id !== receiptId) return r;
+
+      if (field === 'quantity') {
+        const assignments = r.assignments[itemId] || {};
+        const currentSum = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+        const parsedVal = value === '' ? '' : parseInt(value) || 1;
+        if (parsedVal !== '' && parsedVal < currentSum) {
+          setError(`현재 동행자들에게 총 ${currentSum}개가 지정되어 있습니다. 수량을 그 이하로 줄일 수 없습니다.`);
+          return r;
+        }
+      }
+
+      setError('');
+
       const updatedItems = r.items.map(item => {
         if (item.id !== itemId) return item;
         if (field === 'price') {
           return {
             ...item,
             price: value === '' ? '' : parseFloat(value) || 0
+          };
+        }
+        if (field === 'quantity') {
+          return {
+            ...item,
+            quantity: value === '' ? '' : parseInt(value) || 1
           };
         }
         return {
@@ -472,7 +527,6 @@ export default function App() {
         {filteredReceipts.map(receipt => (
           <div className="glass-card receipt-card" key={receipt.id}>
             <div className="receipt-header">
-              {/* 수정 가능한 영수증 제목 인풋 */}
               <div className="receipt-title-wrapper">
                 <input
                   type="text"
@@ -493,7 +547,6 @@ export default function App() {
               {rates && (
                 <span>원화 환산: <strong>{convertToKrw(receipt.totalAmount, receipt.currency, rates).toLocaleString()} 원</strong></span>
               )}
-              {/* 카테고리 지정 셀렉터 */}
               <div className="receipt-category-selector">
                 <label>분류: </label>
                 <select
@@ -512,13 +565,17 @@ export default function App() {
                 <tr>
                   <th style={{ width: '40px' }}></th>
                   <th>메뉴명 (번역)</th>
-                  <th style={{ width: '120px' }}>금액 ({receipt.currency})</th>
+                  <th style={{ width: '110px' }}>금액 ({receipt.currency})</th>
+                  <th style={{ width: '70px' }}>총 수량</th>
                   <th>정산 멤버별 수량 분할</th>
                 </tr>
               </thead>
               <tbody>
                 {receipt.items.map(item => {
                   const assignments = receipt.assignments[item.id] || {};
+                  const currentSum = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+                  const isPlusDisabled = currentSum >= (parseInt(item.quantity) || 1);
+
                   return (
                     <tr key={item.id}>
                       <td style={{ textAlign: 'center' }}>
@@ -550,6 +607,17 @@ export default function App() {
                         />
                       </td>
                       <td>
+                        <input 
+                          type="number" 
+                          className="item-price-edit" 
+                          value={item.quantity} 
+                          onChange={(e) => handleUpdateItemPrice(receipt.id, item.id, 'quantity', e.target.value)}
+                          placeholder="1"
+                          min="1"
+                          style={{ width: '55px' }}
+                        />
+                      </td>
+                      <td>
                         <div className="assignee-selectors">
                           {members.map(member => {
                             const count = assignments[member] || 0;
@@ -565,7 +633,14 @@ export default function App() {
                                 {isAssigned && (
                                   <div className="count-buttons">
                                     <button type="button" className="count-btn" onClick={() => adjustAssignmentCount(receipt.id, item.id, member, -1)}>-</button>
-                                    <button type="button" className="count-btn" onClick={() => adjustAssignmentCount(receipt.id, item.id, member, 1)}>+</button>
+                                    <button 
+                                      type="button" 
+                                      className="count-btn" 
+                                      disabled={isPlusDisabled}
+                                      onClick={() => adjustAssignmentCount(receipt.id, item.id, member, 1)}
+                                    >
+                                      +
+                                    </button>
                                   </div>
                                 )}
                               </div>

@@ -23,9 +23,10 @@ export async function parseReceiptWithGemini(apiKey, base64Image) {
   };
 
   const systemInstruction = `
-  You are an expert receipt OCR analyzer. Your task is to extract the store/shop name, item names, prices, total amount, and currency from receipt images.
+  You are an expert receipt OCR analyzer. Your task is to extract the store/shop name, item names, prices, quantities, total amount, and currency from receipt images.
   For the "storeName" field, extract the name of the store (e.g., "FamilyMart", "Starbucks") and translate it to Korean if applicable (e.g. "패밀리마트", "스타벅스"). If the store name cannot be found, provide a generic description based on the receipt content.
   Translate the extracted item names into Korean for the "translatedName" field.
+  For each item, extract its quantity ("quantity") and the total price for that quantity ("price"). If the quantity is not clearly specified on the receipt, default it to 1.
   Provide the output in a strict JSON format matching the schema below. Do not include any markdown wrapper like \`\`\`json. Return only the raw JSON string.
 
   JSON Schema:
@@ -37,7 +38,8 @@ export async function parseReceiptWithGemini(apiKey, base64Image) {
       {
         "name": "Original menu item name",
         "translatedName": "Korean translated name",
-        "price": number
+        "price": number,
+        "quantity": number
       }
     ]
   }

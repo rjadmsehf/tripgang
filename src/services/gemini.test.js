@@ -18,12 +18,14 @@ vi.mock('@google/generative-ai', () => {
                     {
                       "name": "ラーメン",
                       "translatedName": "라멘",
-                      "price": 950
+                      "price": 950,
+                      "quantity": 1
                     },
                     {
                       "name": "餃子",
                       "translatedName": "만두",
-                      "price": 950
+                      "price": 950,
+                      "quantity": 1
                     }
                   ]
                 }
