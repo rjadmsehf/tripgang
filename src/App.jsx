@@ -36,8 +36,9 @@ export default function App() {
 
   const peerRef = useRef(null);
   const connectionsRef = useRef([]);
+  const guestPermissionsByNicknameRef = useRef({});
 
-  // URL에서 room 파라미터 감지
+  // URL에서 room 파라미터 감지 및 자동 로그인 복구
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
@@ -51,6 +52,14 @@ export default function App() {
       } else {
         setIsHost(false);
         setRoomId(roomParam);
+
+        // 게스트 정보가 세션 스토리지에 남아있고, 같은 방이라면 자동 참여 진행
+        const savedNick = sessionStorage.getItem('guest_nickname');
+        const savedRoomId = sessionStorage.getItem('guest_room_id');
+        if (savedNick && roomParam === savedRoomId) {
+          setNickname(savedNick);
+          performJoin(savedNick, roomParam);
+        }
       }
     } else {
       // 호스트인 경우 자동으로 방 ID 생성
@@ -129,21 +138,24 @@ export default function App() {
     const { type, payload } = data;
 
     switch (type) {
-      case MSG_TYPES.REQ_JOIN:
+      case MSG_TYPES.REQ_JOIN: {
+        const guestName = payload.nickname;
         // 게스트의 조인 승인 및 닉네임 매핑
         setGuests(prev => ({
           ...prev,
-          [conn.peer]: payload.nickname
+          [conn.peer]: guestName
         }));
-        // 기본적으로 신규 접속 게스트는 편집 권한 미부여(방장이 부여하게 설정)
+        // 이전 접속 시 부여된 권한이 있는지 확인하여 복구 (없으면 false)
+        const prevPerm = guestPermissionsByNicknameRef.current[guestName] || false;
         setGuestPermissions(prev => ({
           ...prev,
-          [conn.peer]: false
+          [conn.peer]: prevPerm
         }));
         
         // 동행자 목록에 게스트 이름이 없는 경우 자동으로 멤버 추가 전파
-        applyAction({ type: 'ADD_MEMBER', payload: payload.nickname });
+        applyAction({ type: 'ADD_MEMBER', payload: guestName });
         break;
+      }
 
       case MSG_TYPES.REQUEST_EDIT:
         // 게스트가 편집 요청을 보낸 경우 권한 검증 후 반영
@@ -228,12 +240,8 @@ export default function App() {
     });
   }, [receipts, members, categories, connections, guestPermissions, isHost]);
 
-  // 게스트 연결 함수 (조인 버튼 누를 시 실행)
-  const handleJoinRoom = (e) => {
-    e.preventDefault();
-    const trimmedNick = nickname.trim();
-    if (!trimmedNick) return;
-
+  // 게스트 연결 처리 핵심 함수
+  const performJoin = (targetNickname, targetRoomId) => {
     setError('');
     setIsLoading(true);
 
@@ -243,7 +251,7 @@ export default function App() {
     peer.on('open', (id) => {
       console.log('게스트 Peer 초기화 완료. ID:', id);
       
-      const conn = peer.connect(roomId);
+      const conn = peer.connect(targetRoomId);
       setHostConnection(conn);
 
       conn.on('open', () => {
@@ -251,10 +259,14 @@ export default function App() {
         setIsLoading(false);
         setIsJoined(true);
 
+        // 조인 상태를 로컬 세션에 저장해 새로고침 시 복구 지원
+        sessionStorage.setItem('guest_nickname', targetNickname);
+        sessionStorage.setItem('guest_room_id', targetRoomId);
+
         // 조인 요청 전송
         conn.send({
           type: MSG_TYPES.REQ_JOIN,
-          payload: { nickname: trimmedNick }
+          payload: { nickname: targetNickname }
         });
       });
 
@@ -279,6 +291,14 @@ export default function App() {
       setIsLoading(false);
       setError('네트워크 연결 초기화에 실패했습니다.');
     });
+  };
+
+  // 게스트 연결 함수 (조인 버튼 누를 시 실행)
+  const handleJoinRoom = (e) => {
+    e.preventDefault();
+    const trimmedNick = nickname.trim();
+    if (!trimmedNick) return;
+    performJoin(trimmedNick, roomId);
   };
 
   // 게스트가 호스트로부터 수신받은 데이터 처리
@@ -311,8 +331,12 @@ export default function App() {
 
   // 방장이 게스트 권한 토글하는 핸들러
   const handleTogglePermission = (peerId) => {
+    const guestName = guests[peerId];
     setGuestPermissions(prev => {
       const updatedValue = !prev[peerId];
+      if (guestName) {
+        guestPermissionsByNicknameRef.current[guestName] = updatedValue;
+      }
       // 토글된 결과를 즉시 해당 게스트에게도 전달
       const conn = connections.find(c => c.peer === peerId);
       if (conn && conn.open) {
