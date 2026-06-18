@@ -41,14 +41,23 @@ export default function App() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
+    const hostedRoomId = sessionStorage.getItem('hosted_room_id');
+
     if (roomParam) {
-      setIsHost(false);
-      setRoomId(roomParam);
+      if (roomParam === hostedRoomId) {
+        // 원래 호스트였던 경우 새로고침해도 호스트 권한 유지
+        setIsHost(true);
+        setRoomId(roomParam);
+      } else {
+        setIsHost(false);
+        setRoomId(roomParam);
+      }
     } else {
       // 호스트인 경우 자동으로 방 ID 생성
       setIsHost(true);
       const generatedRoomId = `trip-room-${Math.random().toString(36).substring(2, 9)}`;
       setRoomId(generatedRoomId);
+      sessionStorage.setItem('hosted_room_id', generatedRoomId);
     }
   }, []);
 
