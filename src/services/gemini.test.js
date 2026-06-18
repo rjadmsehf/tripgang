@@ -11,6 +11,7 @@ vi.mock('@google/generative-ai', () => {
               response: {
                 text: vi.fn().mockReturnValue(`
                 {
+                  "storeName": "이치란 라멘",
                   "currency": "JPY",
                   "totalAmount": 1900,
                   "items": [

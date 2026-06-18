@@ -509,3 +509,117 @@ button:hover {
 .app-icon {
   font-size: 2.25rem;
 }
+
+/* Category Tabs UI */
+.category-tabs-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.75rem 1.25rem;
+  margin-bottom: 0.5rem;
+  border-radius: 12px;
+}
+
+.category-tabs {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.category-tab-btn {
+  background: transparent;
+  border: 1px solid var(--glass-border);
+  color: var(--text-secondary);
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.category-tab-btn:hover {
+  border-color: var(--accent-purple);
+  color: var(--text-primary);
+}
+
+.category-tab-btn.active {
+  background: linear-gradient(135deg, var(--accent-purple) 0%, #6366f1 100%);
+  border-color: var(--accent-purple);
+  color: #ffffff;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
+}
+
+.add-category-form {
+  display: flex;
+  gap: 0.35rem;
+}
+
+.add-category-form input {
+  padding: 0.4rem 0.75rem !important;
+  font-size: 0.85rem !important;
+  width: 130px !important;
+  border-radius: 8px !important;
+}
+
+.add-category-form button {
+  padding: 0.4rem 0.75rem !important;
+  font-size: 0.85rem !important;
+  border-radius: 8px !important;
+}
+
+/* Editable Title and Category selector inside card */
+.receipt-title-wrapper {
+  flex: 1;
+  margin-right: 1rem;
+}
+
+.receipt-title-input {
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--accent-purple);
+  font-size: 1.35rem;
+  font-weight: 700;
+  font-family: inherit;
+  padding: 0.25rem 0.5rem;
+  border-radius: 8px;
+  width: 90%;
+  transition: all 0.2s ease;
+}
+
+.receipt-title-input:hover {
+  background: rgba(255, 255, 255, 0.02);
+  border-color: var(--glass-border);
+}
+
+.receipt-title-input:focus {
+  background: rgba(0, 0, 0, 0.3);
+  border-color: var(--accent-purple);
+  outline: none;
+}
+
+.receipt-category-selector {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.receipt-category-selector select {
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid var(--glass-border);
+  color: var(--text-primary);
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.receipt-category-selector select:focus {
+  outline: none;
+  border-color: var(--accent-purple);
+}

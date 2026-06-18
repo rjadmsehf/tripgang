@@ -18,7 +18,7 @@ describe('Travel Settlement Core Logic', () => {
     
     // 1. 멤버 추가 테스트
     const memberInput = screen.getByPlaceholderText('이름 입력');
-    const addButton = screen.getByRole('button', { name: '추가' });
+    const addButton = screen.getAllByRole('button', { name: '추가' })[0];
     
     fireEvent.change(memberInput, { target: { value: 'Alice' } });
     fireEvent.click(addButton);

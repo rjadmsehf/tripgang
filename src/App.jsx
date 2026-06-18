@@ -5,12 +5,17 @@ import './App.css';
 
 export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
-  const [members, setMembers] = useState(['민수', '지은', '혜원']); // 기본값 추가
+  const [members, setMembers] = useState(['민수', '지은', '혜원']); // 기본값
   const [newMemberName, setNewMemberName] = useState('');
   const [rates, setRates] = useState(null);
   const [receipts, setReceipts] = useState([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // 카테고리 관련 상태
+  const [categories, setCategories] = useState(['전체', '미분류', '편의점', '식비', '입장료']);
+  const [activeCategory, setActiveCategory] = useState('전체');
+  const [newCategoryName, setNewCategoryName] = useState('');
 
   // 환율 로드
   useEffect(() => {
@@ -41,7 +46,6 @@ export default function App() {
   // 멤버 삭제
   const handleRemoveMember = (name) => {
     setMembers(members.filter(m => m !== name));
-    // 해당 멤버의 할당 정보도 삭제해야 함
     const updatedReceipts = receipts.map(receipt => {
       const updatedAssignments = { ...receipt.assignments };
       Object.keys(updatedAssignments).forEach(itemId => {
@@ -52,6 +56,20 @@ export default function App() {
       return { ...receipt, assignments: updatedAssignments };
     });
     setReceipts(updatedReceipts);
+  };
+
+  // 카테고리 추가
+  const handleAddCategory = (e) => {
+    e.preventDefault();
+    const trimmed = newCategoryName.trim();
+    if (!trimmed) return;
+    if (categories.includes(trimmed)) {
+      setError('이미 존재하는 카테고리입니다.');
+      return;
+    }
+    setCategories([...categories, trimmed]);
+    setNewCategoryName('');
+    setError('');
   };
 
   // 영수증 업로드 및 파싱
@@ -74,9 +92,10 @@ export default function App() {
         
         const newReceipt = {
           id: Date.now(),
-          name: file.name,
+          name: parsed.storeName || '알 수 없는 가게', // 가게 이름을 기본 제목으로 사용
           currency: parsed.currency || 'KRW',
           totalAmount: parsed.totalAmount || 0,
+          category: '미분류', // 기본 카테고리
           items: (parsed.items || []).map((item, idx) => ({
             id: `${Date.now()}-${idx}`,
             name: item.name,
@@ -86,7 +105,6 @@ export default function App() {
           assignments: {}
         };
 
-        // 초기화 시 모든 아이템에 대해 배분자 없음
         newReceipt.items.forEach(item => {
           newReceipt.assignments[item.id] = {};
         });
@@ -108,7 +126,7 @@ export default function App() {
 
     if (currencyType === 'JPY') {
       sampleData = {
-        name: '일본 도쿄 라멘집 영수증.jpg',
+        name: '이치란 라멘 도쿄점', // 기본 이름으로 가게명 지정
         currency: 'JPY',
         totalAmount: 3200,
         items: [
@@ -120,7 +138,7 @@ export default function App() {
       };
     } else if (currencyType === 'CNY') {
       sampleData = {
-        name: '중국 상하이 마라탕 영수증.jpg',
+        name: '하이디라오 상하이점', // 기본 이름으로 가게명 지정
         currency: 'CNY',
         totalAmount: 168,
         items: [
@@ -137,6 +155,7 @@ export default function App() {
       name: sampleData.name,
       currency: sampleData.currency,
       totalAmount: sampleData.totalAmount,
+      category: '식비', // 샘플은 식비 카테고리로 기본 배분
       items: sampleData.items,
       assignments: {}
     };
@@ -196,7 +215,7 @@ export default function App() {
         id: `manual-${Date.now()}`,
         name: 'Manual Item',
         translatedName: '수동 추가 항목',
-        price: '' // 수정을 원활히 하기 위해 초기값 빈 문자열로 설정
+        price: ''
       };
       return {
         ...r,
@@ -221,6 +240,26 @@ export default function App() {
         items: updatedItems,
         assignments: updatedAssignments
       };
+    }));
+  };
+
+  // 영수증 이름(제목) 수정
+  const handleUpdateReceiptName = (receiptId, newName) => {
+    setReceipts(receipts.map(r => {
+      if (r.id === receiptId) {
+        return { ...r, name: newName };
+      }
+      return r;
+    }));
+  };
+
+  // 영수증 카테고리 지정
+  const handleUpdateReceiptCategory = (receiptId, newCategory) => {
+    setReceipts(receipts.map(r => {
+      if (r.id === receiptId) {
+        return { ...r, category: newCategory };
+      }
+      return r;
     }));
   };
 
@@ -300,6 +339,12 @@ export default function App() {
 
   // 총 정산 원화 누계
   const totalSettledKrw = Object.values(memberBalances).reduce((sum, item) => sum + item.krwTotal, 0);
+
+  // 카테고리 필터링 된 영수증
+  const filteredReceipts = receipts.filter(r => {
+    if (activeCategory === '전체') return true;
+    return (r.category || '미분류') === activeCategory;
+  });
 
   return (
     <div className="app-container">
@@ -382,6 +427,31 @@ export default function App() {
 
       {/* CENTER PANEL - RECEIPT VIEWER */}
       <main className="center-panel">
+        {/* CATEGORY TABS */}
+        <div className="category-tabs-container glass-card">
+          <div className="category-tabs">
+            {categories.map(cat => (
+              <button
+                key={cat}
+                type="button"
+                className={`category-tab-btn ${activeCategory === cat ? 'active' : ''}`}
+                onClick={() => setActiveCategory(cat)}
+              >
+                {cat}
+              </button>
+            ))}
+          </div>
+          <form className="add-category-form" onSubmit={handleAddCategory}>
+            <input
+              type="text"
+              placeholder="카테고리 추가"
+              value={newCategoryName}
+              onChange={(e) => setNewCategoryName(e.target.value)}
+            />
+            <button type="submit">추가</button>
+          </form>
+        </div>
+
         {isLoading && (
           <div className="glass-card loader">
             <div className="spinner"></div>
@@ -391,18 +461,27 @@ export default function App() {
 
         {error && <div className="error-message">{error}</div>}
 
-        {receipts.length === 0 && !isLoading && (
+        {filteredReceipts.length === 0 && !isLoading && (
           <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-secondary)' }}>
             <span style={{ fontSize: '3rem' }}>🧾</span>
-            <h3 style={{ marginTop: '1.5rem', color: 'var(--text-primary)' }}>추가된 영수증이 없습니다</h3>
-            <p style={{ fontSize: '0.95rem' }}>영수증 사진을 업로드하거나 테스트용 엔화/위안화 샘플 버튼을 눌러보세요.</p>
+            <h3 style={{ marginTop: '1.5rem', color: 'var(--text-primary)' }}>해당 카테고리에 영수증이 없습니다</h3>
+            <p style={{ fontSize: '0.95rem' }}>영수증을 등록하시거나, 등록된 영수증의 카테고리를 변경해 보세요.</p>
           </div>
         )}
 
-        {receipts.map(receipt => (
+        {filteredReceipts.map(receipt => (
           <div className="glass-card receipt-card" key={receipt.id}>
             <div className="receipt-header">
-              <h3 style={{ color: 'var(--accent-purple)' }}>{receipt.name}</h3>
+              {/* 수정 가능한 영수증 제목 인풋 */}
+              <div className="receipt-title-wrapper">
+                <input
+                  type="text"
+                  className="receipt-title-input"
+                  value={receipt.name}
+                  onChange={(e) => handleUpdateReceiptName(receipt.id, e.target.value)}
+                  placeholder="영수증 이름 입력"
+                />
+              </div>
               <button className="btn-secondary btn-danger" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }} onClick={() => handleRemoveReceipt(receipt.id)}>
                 삭제
               </button>
@@ -414,6 +493,18 @@ export default function App() {
               {rates && (
                 <span>원화 환산: <strong>{convertToKrw(receipt.totalAmount, receipt.currency, rates).toLocaleString()} 원</strong></span>
               )}
+              {/* 카테고리 지정 셀렉터 */}
+              <div className="receipt-category-selector">
+                <label>분류: </label>
+                <select
+                  value={receipt.category || '미분류'}
+                  onChange={(e) => handleUpdateReceiptCategory(receipt.id, e.target.value)}
+                >
+                  {categories.filter(cat => cat !== '전체').map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
             </div>
 
             <table className="receipt-items-table">
@@ -536,7 +627,7 @@ export default function App() {
         <div className="glass-card summary-card">
           <h2>최종 정산 요약</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', justifycontent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
               <span>등록된 영수증 수</span>
               <span style={{ marginLeft: 'auto' }}>{receipts.length} 개</span>
             </div>
