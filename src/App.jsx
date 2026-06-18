@@ -5,7 +5,7 @@ import './App.css';
 
 export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
-  const [members, setMembers] = useState(['민수', '지은', '혜원']); // 예시 기본값 추가
+  const [members, setMembers] = useState(['민수', '지은', '혜원']); // 기본값 추가
   const [newMemberName, setNewMemberName] = useState('');
   const [rates, setRates] = useState(null);
   const [receipts, setReceipts] = useState([]);
@@ -45,7 +45,9 @@ export default function App() {
     const updatedReceipts = receipts.map(receipt => {
       const updatedAssignments = { ...receipt.assignments };
       Object.keys(updatedAssignments).forEach(itemId => {
-        updatedAssignments[itemId] = updatedAssignments[itemId].filter(m => m !== name);
+        if (updatedAssignments[itemId]) {
+          delete updatedAssignments[itemId][name];
+        }
       });
       return { ...receipt, assignments: updatedAssignments };
     });
@@ -86,7 +88,7 @@ export default function App() {
 
         // 초기화 시 모든 아이템에 대해 배분자 없음
         newReceipt.items.forEach(item => {
-          newReceipt.assignments[item.id] = [];
+          newReceipt.assignments[item.id] = {};
         });
 
         setReceipts([...receipts, newReceipt]);
@@ -99,7 +101,7 @@ export default function App() {
     reader.readAsDataURL(file);
   };
 
-  // 샘플 영수증 로드 (API 키 없이 바로 테스트할 수 있도록 제공)
+  // 샘플 영수증 로드
   const handleLoadSample = (currencyType) => {
     setError('');
     let sampleData;
@@ -112,7 +114,7 @@ export default function App() {
         items: [
           { id: `sample-jpy-1`, name: '醤油ラーメン', translatedName: '쇼유 라멘', price: 980 },
           { id: `sample-jpy-2`, name: '豚骨ラーメン', translatedName: '돈코츠 라멘', price: 1050 },
-          { id: `sample-jpy-3`, name: '焼き餃子', translatedName: '야끼 교자 (만두)', price: 420 },
+          { id: `sample-jpy-3`, name: '焼き餃자', translatedName: '야끼 교자 (만두)', price: 420 },
           { id: `sample-jpy-4`, name: '生ビール', translatedName: '생맥주', price: 750 }
         ]
       };
@@ -123,7 +125,7 @@ export default function App() {
         totalAmount: 168,
         items: [
           { id: `sample-cny-1`, name: '麻辣烫 (基本)', translatedName: '마라탕 (기본)', price: 88 },
-          { id: `sample-cny-2`, name: '꿔바로우 (小)', translatedName: '锅包肉', price: 45 },
+          { id: `sample-cny-2`, name: '꿔바로우 (小)', translatedName: '꿔바로우 (소)', price: 45 },
           { id: `sample-cny-3`, name: '青岛啤酒', translatedName: '칭따오 맥주', price: 20 },
           { id: `sample-cny-4`, name: '可口可乐', translatedName: '코카콜라', price: 15 }
         ]
@@ -140,7 +142,7 @@ export default function App() {
     };
 
     newReceipt.items.forEach(item => {
-      newReceipt.assignments[item.id] = [];
+      newReceipt.assignments[item.id] = {};
     });
 
     setReceipts([...receipts, newReceipt]);
@@ -150,15 +152,37 @@ export default function App() {
   const toggleAssignment = (receiptId, itemId, memberName) => {
     setReceipts(receipts.map(r => {
       if (r.id !== receiptId) return r;
-      const currentAssignees = r.assignments[itemId] || [];
-      const updatedAssignees = currentAssignees.includes(memberName)
-        ? currentAssignees.filter(m => m !== memberName)
-        : [...currentAssignees, memberName];
+      const currentAssignments = r.assignments[itemId] || {};
+      const currentCount = currentAssignments[memberName] || 0;
+      const updatedCount = currentCount > 0 ? 0 : 1;
       return {
         ...r,
         assignments: {
           ...r.assignments,
-          [itemId]: updatedAssignees
+          [itemId]: {
+            ...currentAssignments,
+            [memberName]: updatedCount
+          }
+        }
+      };
+    }));
+  };
+
+  // 아이템 개수 직접 조정
+  const adjustAssignmentCount = (receiptId, itemId, memberName, delta) => {
+    setReceipts(receipts.map(r => {
+      if (r.id !== receiptId) return r;
+      const currentAssignments = r.assignments[itemId] || {};
+      const currentCount = currentAssignments[memberName] || 0;
+      const updatedCount = Math.max(0, currentCount + delta);
+      return {
+        ...r,
+        assignments: {
+          ...r.assignments,
+          [itemId]: {
+            ...currentAssignments,
+            [memberName]: updatedCount
+          }
         }
       };
     }));
@@ -172,15 +196,30 @@ export default function App() {
         id: `manual-${Date.now()}`,
         name: 'Manual Item',
         translatedName: '수동 추가 항목',
-        price: 0
+        price: '' // 수정을 원활히 하기 위해 초기값 빈 문자열로 설정
       };
       return {
         ...r,
         items: [...r.items, newItem],
         assignments: {
           ...r.assignments,
-          [newItem.id]: []
+          [newItem.id]: {}
         }
+      };
+    }));
+  };
+
+  // 아이템 삭제 기능
+  const handleRemoveItem = (receiptId, itemId) => {
+    setReceipts(receipts.map(r => {
+      if (r.id !== receiptId) return r;
+      const updatedItems = r.items.filter(item => item.id !== itemId);
+      const updatedAssignments = { ...r.assignments };
+      delete updatedAssignments[itemId];
+      return {
+        ...r,
+        items: updatedItems,
+        assignments: updatedAssignments
       };
     }));
   };
@@ -191,9 +230,15 @@ export default function App() {
       if (r.id !== receiptId) return r;
       const updatedItems = r.items.map(item => {
         if (item.id !== itemId) return item;
+        if (field === 'price') {
+          return {
+            ...item,
+            price: value === '' ? '' : parseFloat(value) || 0
+          };
+        }
         return {
           ...item,
-          [field]: field === 'price' ? parseFloat(value) || 0 : value
+          [field]: value
         };
       });
       return { ...r, items: updatedItems };
@@ -218,24 +263,30 @@ export default function App() {
 
     receipts.forEach(receipt => {
       receipt.items.forEach(item => {
-        const assignees = receipt.assignments[item.id] || [];
-        if (assignees.length === 0) return; // 아무도 안 고른 항목 패스
+        const assignments = receipt.assignments[item.id] || {};
+        const totalCount = Object.values(assignments).reduce((sum, val) => sum + val, 0);
+        if (totalCount === 0) return; // 아무도 안 고른 항목 패스
         
-        const splitPrice = item.price / assignees.length;
-        const splitPriceKrw = rates ? convertToKrw(splitPrice, receipt.currency, rates) : splitPrice;
+        const itemPrice = parseFloat(item.price) || 0;
 
-        assignees.forEach(member => {
+        Object.entries(assignments).forEach(([member, count]) => {
+          if (count === 0) return;
+          const memberShareRatio = count / totalCount;
+          const splitPrice = itemPrice * memberShareRatio;
+          const splitPriceKrw = rates ? convertToKrw(splitPrice, receipt.currency, rates) : splitPrice;
+
           if (balances[member]) {
             balances[member].foreignTotal += splitPrice;
             balances[member].krwTotal += splitPriceKrw;
             balances[member].itemsBreakdown.push({
               receiptName: receipt.name,
               itemName: item.translatedName,
-              originalPrice: item.price,
+              originalPrice: itemPrice,
               currency: receipt.currency,
               sharePrice: splitPrice,
               sharePriceKrw: splitPriceKrw,
-              splitCount: assignees.length
+              count,
+              totalCount
             });
           }
         });
@@ -368,22 +419,33 @@ export default function App() {
             <table className="receipt-items-table">
               <thead>
                 <tr>
+                  <th style={{ width: '40px' }}></th>
                   <th>메뉴명 (번역)</th>
                   <th style={{ width: '120px' }}>금액 ({receipt.currency})</th>
-                  <th>정산 멤버 지정 (N분의 1 자동분할)</th>
+                  <th>정산 멤버별 수량 분할</th>
                 </tr>
               </thead>
               <tbody>
                 {receipt.items.map(item => {
-                  const assignees = receipt.assignments[item.id] || [];
+                  const assignments = receipt.assignments[item.id] || {};
                   return (
                     <tr key={item.id}>
+                      <td style={{ textAlign: 'center' }}>
+                        <button 
+                          type="button" 
+                          className="btn-delete-item" 
+                          title="항목 삭제" 
+                          onClick={() => handleRemoveItem(receipt.id, item.id)}
+                        >
+                          ×
+                        </button>
+                      </td>
                       <td>
                         <input 
                           type="text" 
                           value={item.translatedName} 
                           onChange={(e) => handleUpdateItemPrice(receipt.id, item.id, 'translatedName', e.target.value)}
-                          style={{ background: 'transparent', border: 'none', padding: 0, fontWeight: '500' }}
+                          style={{ background: 'transparent', border: 'none', padding: 0, fontWeight: '500', color: 'var(--text-primary)' }}
                         />
                         <span className="item-original-name">{item.name}</span>
                       </td>
@@ -393,21 +455,29 @@ export default function App() {
                           className="item-price-edit" 
                           value={item.price} 
                           onChange={(e) => handleUpdateItemPrice(receipt.id, item.id, 'price', e.target.value)}
+                          placeholder="0"
                         />
                       </td>
                       <td>
                         <div className="assignee-selectors">
                           {members.map(member => {
-                            const isAssigned = assignees.includes(member);
+                            const count = assignments[member] || 0;
+                            const isAssigned = count > 0;
                             return (
-                              <label key={member} className={`assignee-label ${isAssigned ? 'assigned' : ''}`}>
-                                <input 
-                                  type="checkbox" 
-                                  checked={isAssigned} 
-                                  onChange={() => toggleAssignment(receipt.id, item.id, member)}
-                                />
-                                {member}
-                              </label>
+                              <div key={member} className={`assignee-control ${isAssigned ? 'assigned' : ''}`}>
+                                <span 
+                                  className="assignee-name"
+                                  onClick={() => toggleAssignment(receipt.id, item.id, member)}
+                                >
+                                  {member} {isAssigned && <span className="assignee-count">({count}개)</span>}
+                                </span>
+                                {isAssigned && (
+                                  <div className="count-buttons">
+                                    <button type="button" className="count-btn" onClick={() => adjustAssignmentCount(receipt.id, item.id, member, -1)}>-</button>
+                                    <button type="button" className="count-btn" onClick={() => adjustAssignmentCount(receipt.id, item.id, member, 1)}>+</button>
+                                  </div>
+                                )}
+                              </div>
                             );
                           })}
                         </div>
@@ -438,7 +508,7 @@ export default function App() {
               <div className="member-bill-card" key={name}>
                 <div className="bill-header">
                   <span className="bill-name">{name}</span>
-                  <span className="bill-total">{data.krwTotal.toLocaleString()} 원</span>
+                  <span className="bill-total">{Math.round(data.krwTotal).toLocaleString()} 원</span>
                 </div>
                 
                 {data.itemsBreakdown.length > 0 ? (
@@ -447,7 +517,7 @@ export default function App() {
                       <div className="bill-item" key={idx}>
                         <span>
                           {item.itemName} 
-                          {item.splitCount > 1 && <span style={{ color: 'var(--accent-teal)' }}> (1/{item.splitCount})</span>}
+                          <span style={{ color: 'var(--accent-teal)' }}> ({item.count}개 / 총 {item.totalCount}개)</span>
                         </span>
                         <span>
                           {Math.round(item.sharePrice).toLocaleString()}{item.currency} ({Math.round(item.sharePriceKrw).toLocaleString()}원)
@@ -466,13 +536,13 @@ export default function App() {
         <div className="glass-card summary-card">
           <h2>최종 정산 요약</h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+            <div style={{ display: 'flex', justifycontent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
               <span>등록된 영수증 수</span>
-              <span>{receipts.length} 개</span>
+              <span style={{ marginLeft: 'auto' }}>{receipts.length} 개</span>
             </div>
             <div className="summary-row">
               <span>총 정산 금액</span>
-              <span>{totalSettledKrw.toLocaleString()} 원</span>
+              <span>{Math.round(totalSettledKrw).toLocaleString()} 원</span>
             </div>
           </div>
         </div>

@@ -23,6 +23,6 @@ describe('Travel Settlement Core Logic', () => {
     fireEvent.change(memberInput, { target: { value: 'Alice' } });
     fireEvent.click(addButton);
     
-    expect(screen.getByText('Alice')).toBeInTheDocument();
+    expect(screen.getAllByText('Alice').length).toBeGreaterThan(0);
   });
 });
