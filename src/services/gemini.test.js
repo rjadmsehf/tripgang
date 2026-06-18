@@ -3,30 +3,34 @@ import { parseReceiptWithGemini } from './gemini';
 
 vi.mock('@google/generative-ai', () => {
   return {
-    GoogleGenAI: vi.fn().mockImplementation(() => {
+    GoogleGenerativeAI: vi.fn().mockImplementation(() => {
       return {
-        models: {
-          generateContent: vi.fn().mockResolvedValue({
-            text: `
-            {
-              "currency": "JPY",
-              "totalAmount": 1900,
-              "items": [
+        getGenerativeModel: vi.fn().mockImplementation(() => {
+          return {
+            generateContent: vi.fn().mockResolvedValue({
+              response: {
+                text: vi.fn().mockReturnValue(`
                 {
-                  "name": "ラーメン",
-                  "translatedName": "라멘",
-                  "price": 950
-                },
-                {
-                  "name": "餃子",
-                  "translatedName": "만두",
-                  "price": 950
+                  "currency": "JPY",
+                  "totalAmount": 1900,
+                  "items": [
+                    {
+                      "name": "ラーメン",
+                      "translatedName": "라멘",
+                      "price": 950
+                    },
+                    {
+                      "name": "餃子",
+                      "translatedName": "만두",
+                      "price": 950
+                    }
+                  ]
                 }
-              ]
-            }
-            `
-          })
-        }
+                `)
+              }
+            })
+          };
+        })
       };
     })
   };

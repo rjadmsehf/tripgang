@@ -5,7 +5,7 @@ import './App.css';
 
 export default function App() {
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
-  const [members, setMembers] = useState([]);
+  const [members, setMembers] = useState(['민수', '지은', '혜원']); // 예시 기본값 추가
   const [newMemberName, setNewMemberName] = useState('');
   const [rates, setRates] = useState(null);
   const [receipts, setReceipts] = useState([]);
@@ -27,12 +27,13 @@ export default function App() {
   // 멤버 추가
   const handleAddMember = (e) => {
     e.preventDefault();
-    if (!newMemberName.trim()) return;
-    if (members.includes(newMemberName.trim())) {
+    const trimmed = newMemberName.trim();
+    if (!trimmed) return;
+    if (members.includes(trimmed)) {
       setError('이미 존재하는 동행자입니다.');
       return;
     }
-    setMembers([...members, newMemberName.trim()]);
+    setMembers([...members, trimmed]);
     setNewMemberName('');
     setError('');
   };
@@ -69,7 +70,6 @@ export default function App() {
         const base64 = reader.result;
         const parsed = await parseReceiptWithGemini(apiKey, base64);
         
-        // 영수증 구조화 추가
         const newReceipt = {
           id: Date.now(),
           name: file.name,
@@ -81,7 +81,7 @@ export default function App() {
             translatedName: item.translatedName || item.name,
             price: item.price || 0
           })),
-          assignments: {} // itemId -> Array of memberNames
+          assignments: {}
         };
 
         // 초기화 시 모든 아이템에 대해 배분자 없음
@@ -97,6 +97,53 @@ export default function App() {
       }
     };
     reader.readAsDataURL(file);
+  };
+
+  // 샘플 영수증 로드 (API 키 없이 바로 테스트할 수 있도록 제공)
+  const handleLoadSample = (currencyType) => {
+    setError('');
+    let sampleData;
+
+    if (currencyType === 'JPY') {
+      sampleData = {
+        name: '일본 도쿄 라멘집 영수증.jpg',
+        currency: 'JPY',
+        totalAmount: 3200,
+        items: [
+          { id: `sample-jpy-1`, name: '醤油ラーメン', translatedName: '쇼유 라멘', price: 980 },
+          { id: `sample-jpy-2`, name: '豚骨ラーメン', translatedName: '돈코츠 라멘', price: 1050 },
+          { id: `sample-jpy-3`, name: '焼き餃子', translatedName: '야끼 교자 (만두)', price: 420 },
+          { id: `sample-jpy-4`, name: '生ビール', translatedName: '생맥주', price: 750 }
+        ]
+      };
+    } else if (currencyType === 'CNY') {
+      sampleData = {
+        name: '중국 상하이 마라탕 영수증.jpg',
+        currency: 'CNY',
+        totalAmount: 168,
+        items: [
+          { id: `sample-cny-1`, name: '麻辣烫 (基本)', translatedName: '마라탕 (기본)', price: 88 },
+          { id: `sample-cny-2`, name: '꿔바로우 (小)', translatedName: '锅包肉', price: 45 },
+          { id: `sample-cny-3`, name: '青岛啤酒', translatedName: '칭따오 맥주', price: 20 },
+          { id: `sample-cny-4`, name: '可口可乐', translatedName: '코카콜라', price: 15 }
+        ]
+      };
+    }
+
+    const newReceipt = {
+      id: Date.now(),
+      name: sampleData.name,
+      currency: sampleData.currency,
+      totalAmount: sampleData.totalAmount,
+      items: sampleData.items,
+      assignments: {}
+    };
+
+    newReceipt.items.forEach(item => {
+      newReceipt.assignments[item.id] = [];
+    });
+
+    setReceipts([...receipts, newReceipt]);
   };
 
   // 아이템 체크박스 토글 (멤버 지정/해제)
@@ -123,7 +170,7 @@ export default function App() {
       if (r.id !== receiptId) return r;
       const newItem = {
         id: `manual-${Date.now()}`,
-        name: '수동 추가 항목',
+        name: 'Manual Item',
         translatedName: '수동 추가 항목',
         price: 0
       };
@@ -138,7 +185,7 @@ export default function App() {
     }));
   };
 
-  // 메뉴 가격 수정 지원
+  // 메뉴 가격 및 텍스트 수정
   const handleUpdateItemPrice = (receiptId, itemId, field, value) => {
     setReceipts(receipts.map(r => {
       if (r.id !== receiptId) return r;
@@ -151,6 +198,11 @@ export default function App() {
       });
       return { ...r, items: updatedItems };
     }));
+  };
+
+  // 영수증 삭제
+  const handleRemoveReceipt = (receiptId) => {
+    setReceipts(receipts.filter(r => r.id !== receiptId));
   };
 
   // 최종 정산 계산기 (멤버별 누적 합계)
@@ -167,7 +219,7 @@ export default function App() {
     receipts.forEach(receipt => {
       receipt.items.forEach(item => {
         const assignees = receipt.assignments[item.id] || [];
-        if (assignees.length === 0) return; // 미배분 아이템은 패스
+        if (assignees.length === 0) return; // 아무도 안 고른 항목 패스
         
         const splitPrice = item.price / assignees.length;
         const splitPriceKrw = rates ? convertToKrw(splitPrice, receipt.currency, rates) : splitPrice;
@@ -195,32 +247,236 @@ export default function App() {
 
   const memberBalances = calculateMemberBalances();
 
+  // 총 정산 원화 누계
+  const totalSettledKrw = Object.values(memberBalances).reduce((sum, item) => sum + item.krwTotal, 0);
+
   return (
     <div className="app-container">
-      <h1>여행 정산 관리</h1>
-      <div className="api-config">
-        <input 
-          type="password" 
-          placeholder="Gemini API Key" 
-          value={apiKey} 
-          onChange={handleSaveApiKey} 
-        />
-      </div>
-      <form onSubmit={handleAddMember}>
-        <input 
-          type="text" 
-          placeholder="이름 입력" 
-          value={newMemberName} 
-          onChange={(e) => setNewMemberName(e.target.value)} 
-        />
-        <button type="submit">추가</button>
-      </form>
-      {error && <p className="error">{error}</p>}
-      <div className="member-list">
-        {members.map(m => (
-          <span key={m}>{m} <button onClick={() => handleRemoveMember(m)}>x</button></span>
+      {/* HEADER BANNER */}
+      <header className="app-header">
+        <div className="app-logo-area">
+          <span className="app-icon">✈️</span>
+          <h1>Travel Settlement</h1>
+        </div>
+        <div className="rates-ticker">
+          {rates ? (
+            <span style={{ fontSize: '0.9rem', color: 'var(--accent-teal)' }}>
+              실시간 환율: 100 JPY = {convertToKrw(100, 'JPY', rates)}원 | 1 CNY = {convertToKrw(1, 'CNY', rates)}원
+            </span>
+          ) : (
+            <span style={{ fontSize: '0.9rem', color: 'var(--text-secondary)' }}>환율 정보 로드 중...</span>
+          )}
+        </div>
+      </header>
+
+      {/* LEFT PANEL - CONFIG */}
+      <aside className="left-panel">
+        <div className="glass-card api-key-section">
+          <h3>Gemini API Key</h3>
+          <input 
+            type="password" 
+            placeholder="AI 분석용 API Key 입력" 
+            value={apiKey} 
+            onChange={handleSaveApiKey} 
+          />
+          <span style={{ fontSize: '0.75rem', color: 'var(--text-secondary)' }}>
+            * 입력하신 API 키는 브라우저에만 안전하게 저장됩니다.
+          </span>
+        </div>
+
+        <div className="glass-card members-section">
+          <h3>동행자 관리</h3>
+          <form onSubmit={handleAddMember}>
+            <input 
+              type="text" 
+              placeholder="이름 입력" 
+              value={newMemberName} 
+              onChange={(e) => setNewMemberName(e.target.value)} 
+            />
+            <button type="submit">추가</button>
+          </form>
+          <div className="members-list">
+            {members.map(m => (
+              <span className="member-chip" key={m}>
+                {m}
+                <button type="button" onClick={() => handleRemoveMember(m)}>×</button>
+              </span>
+            ))}
+          </div>
+        </div>
+
+        <div className="glass-card uploader-section">
+          <h3>영수증 추가</h3>
+          <label className="uploader-area">
+            <span className="uploader-icon">📸</span>
+            <p style={{ margin: '0.5rem 0 0 0', fontWeight: '500' }}>영수증 사진 업로드</p>
+            <span style={{ fontSize: '0.8rem', color: 'var(--text-secondary)' }}>이미지 파일 선택</span>
+            <input type="file" accept="image/*" onChange={handleImageUpload} />
+          </label>
+          <div style={{ marginTop: '1.25rem' }}>
+            <p style={{ margin: '0 0 0.5rem 0', fontSize: '0.85rem', color: 'var(--text-secondary)', fontWeight: '500' }}>
+              💡 테스트용 샘플 영수증 로드:
+            </p>
+            <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <button className="btn-secondary" style={{ flex: 1, padding: '0.5rem' }} onClick={() => handleLoadSample('JPY')}>
+                🇯🇵 엔화 샘플
+              </button>
+              <button className="btn-secondary" style={{ flex: 1, padding: '0.5rem' }} onClick={() => handleLoadSample('CNY')}>
+                🇨🇳 위안화 샘플
+              </button>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* CENTER PANEL - RECEIPT VIEWER */}
+      <main className="center-panel">
+        {isLoading && (
+          <div className="glass-card loader">
+            <div className="spinner"></div>
+            <p>Gemini AI가 영수증의 글자와 금액을 분석 중입니다...</p>
+          </div>
+        )}
+
+        {error && <div className="error-message">{error}</div>}
+
+        {receipts.length === 0 && !isLoading && (
+          <div className="glass-card" style={{ textAlign: 'center', padding: '4rem 2rem', color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '3rem' }}>🧾</span>
+            <h3 style={{ marginTop: '1.5rem', color: 'var(--text-primary)' }}>추가된 영수증이 없습니다</h3>
+            <p style={{ fontSize: '0.95rem' }}>영수증 사진을 업로드하거나 테스트용 엔화/위안화 샘플 버튼을 눌러보세요.</p>
+          </div>
+        )}
+
+        {receipts.map(receipt => (
+          <div className="glass-card receipt-card" key={receipt.id}>
+            <div className="receipt-header">
+              <h3 style={{ color: 'var(--accent-purple)' }}>{receipt.name}</h3>
+              <button className="btn-secondary btn-danger" style={{ padding: '0.35rem 0.75rem', fontSize: '0.85rem' }} onClick={() => handleRemoveReceipt(receipt.id)}>
+                삭제
+              </button>
+            </div>
+            
+            <div className="receipt-meta">
+              <span>통화: <strong>{receipt.currency}</strong></span>
+              <span>총액: <strong>{receipt.totalAmount.toLocaleString()} {receipt.currency}</strong></span>
+              {rates && (
+                <span>원화 환산: <strong>{convertToKrw(receipt.totalAmount, receipt.currency, rates).toLocaleString()} 원</strong></span>
+              )}
+            </div>
+
+            <table className="receipt-items-table">
+              <thead>
+                <tr>
+                  <th>메뉴명 (번역)</th>
+                  <th style={{ width: '120px' }}>금액 ({receipt.currency})</th>
+                  <th>정산 멤버 지정 (N분의 1 자동분할)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {receipt.items.map(item => {
+                  const assignees = receipt.assignments[item.id] || [];
+                  return (
+                    <tr key={item.id}>
+                      <td>
+                        <input 
+                          type="text" 
+                          value={item.translatedName} 
+                          onChange={(e) => handleUpdateItemPrice(receipt.id, item.id, 'translatedName', e.target.value)}
+                          style={{ background: 'transparent', border: 'none', padding: 0, fontWeight: '500' }}
+                        />
+                        <span className="item-original-name">{item.name}</span>
+                      </td>
+                      <td>
+                        <input 
+                          type="number" 
+                          className="item-price-edit" 
+                          value={item.price} 
+                          onChange={(e) => handleUpdateItemPrice(receipt.id, item.id, 'price', e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <div className="assignee-selectors">
+                          {members.map(member => {
+                            const isAssigned = assignees.includes(member);
+                            return (
+                              <label key={member} className={`assignee-label ${isAssigned ? 'assigned' : ''}`}>
+                                <input 
+                                  type="checkbox" 
+                                  checked={isAssigned} 
+                                  onChange={() => toggleAssignment(receipt.id, item.id, member)}
+                                />
+                                {member}
+                              </label>
+                            );
+                          })}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <div className="receipt-actions">
+              <button className="btn-secondary" onClick={() => handleAddManualItem(receipt.id)}>
+                ➕ 항목 추가
+              </button>
+            </div>
+          </div>
         ))}
-      </div>
+      </main>
+
+      {/* RIGHT PANEL - SETTLEMENT SUMMARY */}
+      <aside className="right-panel">
+        <div className="glass-card settlement-card">
+          <h2>동행자별 청구 내역</h2>
+          {members.length === 0 ? (
+            <p style={{ color: 'var(--text-secondary)', textAlign: 'center' }}>동행자를 먼저 추가해 주세요.</p>
+          ) : (
+            Object.entries(memberBalances).map(([name, data]) => (
+              <div className="member-bill-card" key={name}>
+                <div className="bill-header">
+                  <span className="bill-name">{name}</span>
+                  <span className="bill-total">{data.krwTotal.toLocaleString()} 원</span>
+                </div>
+                
+                {data.itemsBreakdown.length > 0 ? (
+                  <div className="bill-items-list">
+                    {data.itemsBreakdown.map((item, idx) => (
+                      <div className="bill-item" key={idx}>
+                        <span>
+                          {item.itemName} 
+                          {item.splitCount > 1 && <span style={{ color: 'var(--accent-teal)' }}> (1/{item.splitCount})</span>}
+                        </span>
+                        <span>
+                          {Math.round(item.sharePrice).toLocaleString()}{item.currency} ({Math.round(item.sharePriceKrw).toLocaleString()}원)
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p style={{ fontSize: '0.8rem', color: 'var(--text-secondary)', margin: '0.25rem 0 0 0' }}>지정된 메뉴가 없습니다.</p>
+                )}
+              </div>
+            ))
+          )}
+        </div>
+
+        <div className="glass-card summary-card">
+          <h2>최종 정산 요약</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', color: 'var(--text-secondary)', fontSize: '0.95rem' }}>
+              <span>등록된 영수증 수</span>
+              <span>{receipts.length} 개</span>
+            </div>
+            <div className="summary-row">
+              <span>총 정산 금액</span>
+              <span>{totalSettledKrw.toLocaleString()} 원</span>
+            </div>
+          </div>
+        </div>
+      </aside>
     </div>
   );
 }

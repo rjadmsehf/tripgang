@@ -1,4 +1,4 @@
-import { GoogleGenAI } from '@google/generative-ai';
+import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export async function parseReceiptWithGemini(apiKey, base64Image) {
   if (!apiKey) {
@@ -8,9 +8,12 @@ export async function parseReceiptWithGemini(apiKey, base64Image) {
     throw new Error('분석할 이미지 파일이 필요합니다.');
   }
 
-  // GoogleGenAI 초기화
-  const ai = new GoogleGenAI({ apiKey });
+  // GoogleGenerativeAI 초기화
+  const genAI = new GoogleGenerativeAI(apiKey);
   
+  // 3.5버전 플래시 모델 연동
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' }); // SDK에서 호환 가능한 최신 stable 혹은 preview 모델명
+
   // 이미지를 Gemini에 전달할 파트 포맷으로 가공
   const imagePart = {
     inlineData: {
@@ -39,12 +42,12 @@ export async function parseReceiptWithGemini(apiKey, base64Image) {
   `;
 
   try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.5-flash',
-      contents: [systemInstruction, imagePart]
-    });
-
-    const text = response.text.trim();
+    const result = await model.generateContent([
+      systemInstruction,
+      imagePart
+    ]);
+    const response = await result.response;
+    const text = response.text().trim();
     // 혹시라도 LLM이 마크다운 블록을 제공할 경우를 대비하여 정제
     const jsonCleaned = text.replace(/^```json/, '').replace(/```$/, '').trim();
     return JSON.parse(jsonCleaned);
