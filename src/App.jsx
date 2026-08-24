@@ -4,8 +4,10 @@ import { fetchRates, convertToKrw } from './services/exchangeRate';
 import { parseReceiptWithGemini } from './services/gemini';
 import { MSG_TYPES, PEER_OPTIONS } from './services/peerService';
 import './App.css';
+import TimelineVisualizer from './components/TimelineVisualizer';
 
 export default function App() {
+  const [activeTab, setActiveTab] = useState('settlement');
   const [apiKey, setApiKey] = useState(() => localStorage.getItem('gemini_api_key') || '');
   const [members, setMembers] = useState(['민수', '지은', '혜원']); // 기본값
   const [newMemberName, setNewMemberName] = useState('');
@@ -840,6 +842,47 @@ export default function App() {
             </span>
           )}
         </div>
+
+        {/* Navigation Tabs */}
+        <div className="header-nav-tabs" style={{ display: 'flex', gap: '0.75rem' }}>
+          <button 
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'settlement' ? 'active' : ''}`}
+            onClick={() => setActiveTab('settlement')}
+            style={{
+              padding: '0.6rem 1.2rem',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'settlement' ? 'var(--accent-teal)' : 'rgba(255, 255, 255, 0.08)',
+              color: activeTab === 'settlement' ? '#121214' : 'var(--text-primary)',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'inherit'
+            }}
+          >
+            💵 비용 정산
+          </button>
+          <button 
+            type="button"
+            className={`nav-tab-btn ${activeTab === 'timeline' ? 'active' : ''}`}
+            onClick={() => setActiveTab('timeline')}
+            style={{
+              padding: '0.6rem 1.2rem',
+              borderRadius: '8px',
+              border: 'none',
+              background: activeTab === 'timeline' ? 'var(--accent-teal)' : 'rgba(255, 255, 255, 0.08)',
+              color: activeTab === 'timeline' ? '#121214' : 'var(--text-primary)',
+              fontWeight: '600',
+              cursor: 'pointer',
+              transition: 'all 0.2s ease',
+              fontFamily: 'inherit'
+            }}
+          >
+            🗺️ 경로 시각화
+          </button>
+        </div>
+
         <div className="rates-ticker">
           {rates ? (
             <span style={{ fontSize: '0.9rem', color: 'var(--accent-teal)' }}>
@@ -850,6 +893,9 @@ export default function App() {
           )}
         </div>
       </header>
+
+      {activeTab === 'settlement' ? (
+        <>
 
       {/* LEFT PANEL - CONFIG */}
       <aside className="left-panel">
@@ -1232,6 +1278,10 @@ export default function App() {
           </div>
         </div>
       </aside>
+      </>
+      ) : (
+        <TimelineVisualizer />
+      )}
     </div>
   );
 }
