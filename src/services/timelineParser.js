@@ -16,7 +16,8 @@ function getHaversineDistance(lat1, lon1, lat2, lon2) {
 
 function getLocalDateString(timestampStr) {
   try {
-    const date = new Date(timestampStr);
+    const val = isNaN(timestampStr) ? timestampStr : Number(timestampStr);
+    const date = new Date(val);
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
@@ -38,25 +39,34 @@ export function parseTimelineJson(json) {
         const seg = obj.activitySegment;
         if (!seg.duration) continue;
         
-        const startDateStr = getLocalDateString(seg.duration.startTimestamp);
+        const startVal = seg.duration.startTimestamp || seg.duration.startTimestampMs;
+        const endVal = seg.duration.endTimestamp || seg.duration.endTimestampMs;
+        if (!startVal) continue;
+
+        const startDateStr = getLocalDateString(startVal);
         if (startDateStr === 'Unknown') continue;
 
         if (!result[startDateStr]) {
           result[startDateStr] = { date: startDateStr, activities: [] };
         }
 
+        const stTime = isNaN(startVal) ? new Date(startVal).getTime() : Number(startVal);
+        const edTime = isNaN(endVal) ? new Date(endVal).getTime() : Number(endVal);
+
         // Extract path points
         let path = [];
         const rawPoints = seg.waypointPath?.waypoints || seg.simplifiedRawPath?.points || [];
         if (rawPoints.length > 0) {
-          path = rawPoints.map(p => ({
-            lat: (p.latE7 || p.latitudeE7) / 1e7,
-            lng: (p.lngE7 || p.longitudeE7) / 1e7,
-            time: p.timestampMs ? Number(p.timestampMs) : new Date(seg.duration.startTimestamp).getTime()
-          }));
+          path = rawPoints.map(p => {
+            const ptTimeVal = p.timestampMs || p.timestamp || startVal;
+            const ptTime = isNaN(ptTimeVal) ? new Date(ptTimeVal).getTime() : Number(ptTimeVal);
+            return {
+              lat: (p.latE7 || p.latitudeE7) / 1e7,
+              lng: (p.lngE7 || p.longitudeE7) / 1e7,
+              time: ptTime
+            };
+          });
         } else if (seg.startLocation && seg.endLocation) {
-          const stTime = new Date(seg.duration.startTimestamp).getTime();
-          const edTime = new Date(seg.duration.endTimestamp).getTime();
           path = [
             { lat: (seg.startLocation.latitudeE7 || seg.startLocation.latE7) / 1e7, lng: (seg.startLocation.longitudeE7 || seg.startLocation.lngE7) / 1e7, time: stTime },
             { lat: (seg.endLocation.latitudeE7 || seg.endLocation.latE7) / 1e7, lng: (seg.endLocation.longitudeE7 || seg.endLocation.lngE7) / 1e7, time: edTime }
@@ -90,15 +100,19 @@ export function parseTimelineJson(json) {
         result[startDateStr].activities.push({
           type,
           label,
-          startTime: new Date(seg.duration.startTimestamp).getTime(),
-          endTime: new Date(seg.duration.endTimestamp).getTime(),
+          startTime: stTime,
+          endTime: edTime,
           path
         });
       } else if (obj.placeVisit) {
         const pv = obj.placeVisit;
         if (!pv.location || !pv.duration) continue;
 
-        const startDateStr = getLocalDateString(pv.duration.startTimestamp);
+        const startVal = pv.duration.startTimestamp || pv.duration.startTimestampMs;
+        const endVal = pv.duration.endTimestamp || pv.duration.endTimestampMs;
+        if (!startVal) continue;
+
+        const startDateStr = getLocalDateString(startVal);
         if (startDateStr === 'Unknown') continue;
 
         if (!result[startDateStr]) {
@@ -107,8 +121,8 @@ export function parseTimelineJson(json) {
 
         const lat = (pv.location.latitudeE7 || pv.location.latE7) / 1e7;
         const lng = (pv.location.longitudeE7 || pv.location.lngE7) / 1e7;
-        const stTime = new Date(pv.duration.startTimestamp).getTime();
-        const edTime = new Date(pv.duration.endTimestamp).getTime();
+        const stTime = isNaN(startVal) ? new Date(startVal).getTime() : Number(startVal);
+        const edTime = isNaN(endVal) ? new Date(endVal).getTime() : Number(endVal);
 
         result[startDateStr].activities.push({
           type: 'STILL',
@@ -125,18 +139,21 @@ export function parseTimelineJson(json) {
     // Group raw points by date
     const dateMap = {};
     for (const loc of json.locations) {
-      if (!loc.timestamp) continue;
-      const dateStr = getLocalDateString(loc.timestamp);
+      const tsVal = loc.timestamp || loc.timestampMs;
+      if (!tsVal) continue;
+      const dateStr = getLocalDateString(tsVal);
       if (dateStr === 'Unknown') continue;
 
       if (!dateMap[dateStr]) {
         dateMap[dateStr] = [];
       }
 
+      const timeMs = isNaN(tsVal) ? new Date(tsVal).getTime() : Number(tsVal);
+
       dateMap[dateStr].push({
         lat: loc.latitudeE7 / 1e7,
         lng: loc.longitudeE7 / 1e7,
-        time: new Date(loc.timestamp).getTime()
+        time: timeMs
       });
     }
 

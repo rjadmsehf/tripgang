@@ -54,4 +54,16 @@ describe('timelineParser', () => {
     expect(acts[0].type).toBe('WALKING');
     expect(acts[1].type).toBe('FLYING');
   });
+
+  it('should parse timestampMs and startTimestampMs format variations', () => {
+    const mockJson = {
+      locations: [
+        { latitudeE7: 375665000, longitudeE7: 126978000, timestampMs: '1787572800000' }, // 2026-08-24T12:00:00Z
+        { latitudeE7: 375666000, longitudeE7: 126978100, timestampMs: '1787572860000' }  // 2026-08-24T12:01:00Z
+      ]
+    };
+    const parsed = parseTimelineJson(mockJson);
+    expect(parsed['2026-08-24']).toBeDefined();
+    expect(parsed['2026-08-24'].activities[0].type).toBe('WALKING');
+  });
 });
