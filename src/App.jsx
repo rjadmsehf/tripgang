@@ -830,7 +830,7 @@ export default function App() {
   }
 
   return (
-    <div className="app-container">
+    <div className={`app-container ${activeTab === 'timeline' ? 'timeline-mode' : ''}`}>
       {/* HEADER BANNER */}
       <header className="app-header">
         <div className="app-logo-area">

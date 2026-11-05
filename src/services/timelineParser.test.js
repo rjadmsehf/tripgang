@@ -66,4 +66,42 @@ describe('timelineParser', () => {
     expect(parsed['2026-08-24']).toBeDefined();
     expect(parsed['2026-08-24'].activities[0].type).toBe('WALKING');
   });
+
+  it('should parse modern on-device semanticSegments format with point string coordinates', () => {
+    const mockJson = {
+      semanticSegments: [
+        {
+          startTime: '2026-08-24T08:00:00.000Z',
+          endTime: '2026-08-24T08:30:00.000Z',
+          timelinePath: [
+            { point: '37.5665°, 126.9780°', time: '2026-08-24T08:05:00.000Z' },
+            { point: 'geo:37.5685,126.9980', time: '2026-08-24T08:15:00.000Z' }
+          ],
+          activity: {
+            topCandidate: {
+              type: 'MOTORCYCLING'
+            }
+          }
+        },
+        {
+          startTime: '2026-08-24T08:30:00.000Z',
+          endTime: '2026-08-24T09:00:00.000Z',
+          visit: {
+            topCandidate: {
+              placeLocation: '37.5685°, 126.9980°',
+              semanticType: 'TYPE_WORK'
+            }
+          }
+        }
+      ]
+    };
+    const parsed = parseTimelineJson(mockJson);
+    expect(parsed['2026-08-24']).toBeDefined();
+    expect(parsed['2026-08-24'].activities.length).toBe(2);
+    expect(parsed['2026-08-24'].activities[0].type).toBe('MOTORCYCLING');
+    expect(parsed['2026-08-24'].activities[0].path.length).toBe(2);
+    expect(parsed['2026-08-24'].activities[0].path[0].lat).toBeCloseTo(37.5665);
+    expect(parsed['2026-08-24'].activities[0].path[1].lat).toBeCloseTo(37.5685);
+    expect(parsed['2026-08-24'].activities[1].type).toBe('STILL');
+  });
 });

@@ -14,10 +14,49 @@ function getHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c; // in meters
 }
 
-function getLocalDateString(timestampStr) {
+export function parseLatLng(point) {
+  if (!point) return null;
+
+  if (typeof point === 'object') {
+    const lat =
+      point.lat ??
+      point.latitude ??
+      (point.latE7 != null ? point.latE7 / 1e7 : null) ??
+      (point.latitudeE7 != null ? point.latitudeE7 / 1e7 : null);
+    const lng =
+      point.lng ??
+      point.longitude ??
+      (point.lngE7 != null ? point.lngE7 / 1e7 : null) ??
+      (point.longitudeE7 != null ? point.longitudeE7 / 1e7 : null);
+
+    if (lat != null && lng != null && !isNaN(lat) && !isNaN(lng)) {
+      return { lat: Number(lat), lng: Number(lng) };
+    }
+    return null;
+  }
+
+  if (typeof point === 'string') {
+    // Remove "geo:", degree symbol "°", and trim
+    const cleaned = point.replace(/[°geo:]/g, '').trim();
+    // Split by comma or whitespace
+    const parts = cleaned.split(/[\s,]+/);
+    if (parts.length >= 2) {
+      const lat = parseFloat(parts[0]);
+      const lng = parseFloat(parts[1]);
+      if (!isNaN(lat) && !isNaN(lng)) {
+        return { lat, lng };
+      }
+    }
+  }
+
+  return null;
+}
+
+function getLocalDateString(timestampVal) {
   try {
-    const val = isNaN(timestampStr) ? timestampStr : Number(timestampStr);
+    const val = isNaN(timestampVal) ? timestampVal : Number(timestampVal);
     const date = new Date(val);
+    if (isNaN(date.getTime())) return 'Unknown';
     const yyyy = date.getFullYear();
     const mm = String(date.getMonth() + 1).padStart(2, '0');
     const dd = String(date.getDate()).padStart(2, '0');
@@ -27,18 +66,111 @@ function getLocalDateString(timestampStr) {
   }
 }
 
+function mapActivityType(typeStr) {
+  const upper = String(typeStr || '').toUpperCase();
+  if (upper.includes('WALKING') || upper.includes('FOOT') || upper.includes('RUNNING')) {
+    return { type: 'WALKING', label: '걷기' };
+  } else if (upper.includes('MOTORCYCLING')) {
+    return { type: 'MOTORCYCLING', label: '오토바이' };
+  } else if (upper.includes('FLYING') || upper.includes('AIRPLANE')) {
+    return { type: 'FLYING', label: '비행기' };
+  } else if (upper.includes('CYCLING') || upper.includes('BICYCLE')) {
+    return { type: 'CYCLING', label: '자전거' };
+  } else if (upper.includes('STILL')) {
+    return { type: 'STILL', label: '정지' };
+  }
+  return { type: 'VEHICLE', label: '자동차' };
+}
+
+function getLabelFromType(type) {
+  switch (type) {
+    case 'WALKING': return '걷기';
+    case 'CYCLING': return '자전거';
+    case 'MOTORCYCLING': return '오토바이';
+    case 'FLYING': return '비행기';
+    case 'STILL': return '정지';
+    default: return '자동차';
+  }
+}
+
 export function parseTimelineJson(json) {
   const result = {};
 
   if (!json) return result;
 
-  // Format A: Semantic monthly history
+  // Format 1: semanticSegments (Newer Google Maps on-device export or array format)
+  const segments = json.semanticSegments || (Array.isArray(json) ? json : null);
+  if (segments && Array.isArray(segments) && segments.length > 0) {
+    for (const seg of segments) {
+      const startVal = seg.startTime || seg.startTimeMs || seg.duration?.startTimestamp || seg.duration?.startTimestampMs;
+      const endVal = seg.endTime || seg.endTimeMs || seg.duration?.endTimestamp || seg.duration?.endTimestampMs || startVal;
+      if (!startVal) continue;
+
+      const startDateStr = getLocalDateString(startVal);
+      if (startDateStr === 'Unknown') continue;
+
+      if (!result[startDateStr]) {
+        result[startDateStr] = { date: startDateStr, activities: [] };
+      }
+
+      const stTime = isNaN(startVal) ? new Date(startVal).getTime() : Number(startVal);
+      const edTime = isNaN(endVal) ? new Date(endVal).getTime() : Number(endVal);
+
+      // A) Transit / Path
+      if (seg.timelinePath && Array.isArray(seg.timelinePath) && seg.timelinePath.length > 0) {
+        const path = [];
+        for (const ptObj of seg.timelinePath) {
+          const coords = parseLatLng(ptObj.point || ptObj);
+          if (coords) {
+            const ptTimeVal = ptObj.time || ptObj.timestamp || startVal;
+            const ptTime = isNaN(ptTimeVal) ? new Date(ptTimeVal).getTime() : Number(ptTimeVal);
+            path.push({
+              lat: coords.lat,
+              lng: coords.lng,
+              time: ptTime
+            });
+          }
+        }
+
+        if (path.length > 0) {
+          const rawType = seg.activity?.topCandidate?.type || seg.activityType || 'VEHICLE';
+          const { type, label } = mapActivityType(rawType);
+          result[startDateStr].activities.push({
+            type,
+            label,
+            startTime: stTime,
+            endTime: edTime,
+            path
+          });
+        }
+      }
+      // B) Visit
+      else if (seg.visit) {
+        const loc = seg.visit.topCandidate?.placeLocation || seg.visit.placeLocation || seg.visit.location;
+        const coords = parseLatLng(loc);
+        if (coords) {
+          result[startDateStr].activities.push({
+            type: 'STILL',
+            label: seg.visit.topCandidate?.semanticType || seg.visit.topCandidate?.placeId || '방문 장소',
+            startTime: stTime,
+            endTime: edTime,
+            path: [
+              { lat: coords.lat, lng: coords.lng, time: stTime },
+              { lat: coords.lat, lng: coords.lng, time: edTime }
+            ]
+          });
+        }
+      }
+    }
+  }
+
+  // Format 2: Semantic monthly history (timelineObjects)
   if (json.timelineObjects && Array.isArray(json.timelineObjects)) {
     for (const obj of json.timelineObjects) {
       if (obj.activitySegment) {
         const seg = obj.activitySegment;
         if (!seg.duration) continue;
-        
+
         const startVal = seg.duration.startTimestamp || seg.duration.startTimestampMs;
         const endVal = seg.duration.endTimestamp || seg.duration.endTimestampMs;
         if (!startVal) continue;
@@ -75,27 +207,7 @@ export function parseTimelineJson(json) {
 
         if (path.length === 0) continue;
 
-        // Map activityType
-        const typeStr = (seg.activityType || 'STILL').toUpperCase();
-        let type = 'VEHICLE';
-        let label = '자동차';
-
-        if (typeStr.includes('WALKING') || typeStr.includes('FOOT') || typeStr.includes('RUNNING')) {
-          type = 'WALKING';
-          label = '걷기';
-        } else if (typeStr.includes('MOTORCYCLING')) {
-          type = 'MOTORCYCLING';
-          label = '오토바이';
-        } else if (typeStr.includes('FLYING')) {
-          type = 'FLYING';
-          label = '비행기';
-        } else if (typeStr.includes('CYCLING') || typeStr.includes('BICYCLE')) {
-          type = 'CYCLING';
-          label = '자전거';
-        } else if (typeStr.includes('STILL')) {
-          type = 'STILL';
-          label = '정지';
-        }
+        const { type, label } = mapActivityType(seg.activityType);
 
         result[startDateStr].activities.push({
           type,
@@ -133,10 +245,10 @@ export function parseTimelineJson(json) {
         });
       }
     }
-  } 
-  // Format B: Raw Records.json locations list
-  else if (json.locations && Array.isArray(json.locations)) {
-    // Group raw points by date
+  }
+
+  // Format 3: Raw Records.json locations list
+  if (json.locations && Array.isArray(json.locations)) {
     const dateMap = {};
     for (const loc of json.locations) {
       const tsVal = loc.timestamp || loc.timestampMs;
@@ -159,7 +271,6 @@ export function parseTimelineJson(json) {
 
     // Process each date's array of points
     for (const [dateStr, points] of Object.entries(dateMap)) {
-      // Sort chronologically
       points.sort((a, b) => a.time - b.time);
 
       if (points.length < 2) continue;
@@ -184,7 +295,6 @@ export function parseTimelineJson(json) {
           speed = dist / timeSec; // meters per second
         }
 
-        // Dynamic speed heuristic classification
         let type = 'VEHICLE';
         if (speed < 2.0) {
           type = 'WALKING';
@@ -200,7 +310,6 @@ export function parseTimelineJson(json) {
           currentType = type;
         }
 
-        // If type changes or gap is too large (> 30 mins), flush active segment
         if (type !== currentType || timeSec > 1800) {
           if (currentSegment.length >= 2) {
             activities.push({
@@ -218,7 +327,6 @@ export function parseTimelineJson(json) {
         }
       }
 
-      // Flush remaining
       if (currentSegment.length >= 2) {
         activities.push({
           type: currentType,
@@ -230,10 +338,10 @@ export function parseTimelineJson(json) {
       }
 
       if (activities.length > 0) {
-        result[dateStr] = {
-          date: dateStr,
-          activities
-        };
+        if (!result[dateStr]) {
+          result[dateStr] = { date: dateStr, activities: [] };
+        }
+        result[dateStr].activities.push(...activities);
       }
     }
   }
@@ -244,15 +352,4 @@ export function parseTimelineJson(json) {
   }
 
   return result;
-}
-
-function getLabelFromType(type) {
-  switch (type) {
-    case 'WALKING': return '걷기';
-    case 'CYCLING': return '자전거';
-    case 'MOTORCYCLING': return '오토바이';
-    case 'FLYING': return '비행기';
-    case 'STILL': return '정지';
-    default: return '자동차';
-  }
 }

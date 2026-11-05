@@ -27,6 +27,7 @@ export default function TimelineVisualizer() {
   const [timelineData, setTimelineData] = useState(null);
   const [dates, setDates] = useState([]);
   const [selectedDate, setSelectedDate] = useState('');
+  const [uploadedFileName, setUploadedFileName] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 1
   const [speedMultiplier, setSpeedMultiplier] = useState(5);
@@ -54,27 +55,36 @@ export default function TimelineVisualizer() {
     const file = e.target.files[0];
     if (!file) return;
 
+    setUploadedFileName(file.name);
     const reader = new FileReader();
     reader.onload = (event) => {
       try {
         const json = JSON.parse(event.target.result);
         const parsed = parseTimelineJson(json);
-        setTimelineData(parsed);
         const sortedDates = Object.keys(parsed).sort();
-        setDates(sortedDates);
-        if (sortedDates.length > 0) {
-          setSelectedDate(sortedDates[0]);
+        if (sortedDates.length === 0) {
+          alert('선택하신 JSON 파일에서 날짜별 이동 기록을 찾지 못했습니다.\n\n지원되는 구글 타임라인 파일 형식:\n1. 모바일 Google Maps 내보내기 (Timeline.json - semanticSegments)\n2. Google Takeout 월별 기록 (*_JANUARY.json 등)\n3. Google Takeout 원시 위치 기록 (Records.json)');
+          return;
         }
+        setTimelineData(parsed);
+        setDates(sortedDates);
+        setSelectedDate(sortedDates[0]);
       } catch (err) {
-        alert('JSON 파일 파싱에 실패했습니다. 올바른 구글 타임라인 파일인지 확인하세요.');
+        console.error('File parsing error:', err);
+        alert('JSON 파일 형식이 올바르지 않거나 파싱에 실패했습니다.\n' + err.message);
       }
     };
+    reader.onerror = () => {
+      alert('파일을 읽는 도중 오류가 발생했습니다.');
+    };
     reader.readAsText(file);
+    e.target.value = '';
   };
 
   // Initialize Leaflet Map
   useEffect(() => {
     if (!mapRef.current) return;
+    if (leafletMapInstance.current) return;
 
     const map = L.map(mapRef.current).setView([37.5665, 126.978], 13);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -84,8 +94,14 @@ export default function TimelineVisualizer() {
     leafletMapInstance.current = map;
     polylineGroupRef.current = L.featureGroup().addTo(map);
 
+    const timer = setTimeout(() => {
+      map.invalidateSize();
+    }, 200);
+
     return () => {
+      clearTimeout(timer);
       map.remove();
+      leafletMapInstance.current = null;
     };
   }, []);
 
@@ -113,6 +129,8 @@ export default function TimelineVisualizer() {
   // Map stats & Polylines Update when date changes
   useEffect(() => {
     if (!leafletMapInstance.current || activePoints.length === 0) return;
+
+    leafletMapInstance.current.invalidateSize();
 
     // Clear previous paths
     polylineGroupRef.current.clearLayers();
@@ -515,6 +533,11 @@ export default function TimelineVisualizer() {
             Google JSON 파일 선택
             <input type="file" accept=".json" onChange={handleFileUpload} style={{ display: 'none' }} />
           </label>
+          {uploadedFileName && (
+            <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: 'var(--accent-teal, #10b981)', wordBreak: 'break-all' }}>
+              📄 <strong>선택된 파일:</strong> {uploadedFileName}
+            </div>
+          )}
         </div>
 
         {dates.length > 0 && (
@@ -572,6 +595,24 @@ export default function TimelineVisualizer() {
 
       <main className="timeline-map-area">
         <div ref={mapRef} className="map-canvas-container"></div>
+
+        {activePoints.length === 0 && (
+          <div className="map-empty-overlay">
+            <div className="map-empty-card">
+              <span style={{ fontSize: '3rem', marginBottom: '0.5rem' }}>🗺️</span>
+              <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.2rem', color: '#f8fafc' }}>구글 타임라인 JSON 파일을 등록해 주세요</h3>
+              <p style={{ margin: '0 0 1rem 0', color: '#94a3b8', fontSize: '0.9rem', lineHeight: '1.5' }}>
+                좌측 패널의 <strong>[Google JSON 파일 선택]</strong>을 눌러 위치 기록 파일을 업로드하시면<br />
+                날짜별 이동 경로와 비행기, 자동차, 걷기 등의 시각화 애니메이션이 표시됩니다.
+              </p>
+              <div className="supported-formats-box">
+                <span className="format-tag">✓ 모바일 Google Maps 내보내기 (Timeline.json)</span>
+                <span className="format-tag">✓ Google Takeout 월별 기록 (*.json)</span>
+                <span className="format-tag">✓ Google Takeout 원시 기록 (Records.json)</span>
+              </div>
+            </div>
+          </div>
+        )}
 
         {activePoints.length > 0 && (
           <div className="playback-control-bar">
