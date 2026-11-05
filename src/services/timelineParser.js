@@ -1,5 +1,5 @@
 // Haversine distance in meters
-function getHaversineDistance(lat1, lon1, lat2, lon2) {
+export function getHaversineDistance(lat1, lon1, lat2, lon2) {
   const R = 6371e3; // meters
   const phi1 = (lat1 * Math.PI) / 180;
   const phi2 = (lat2 * Math.PI) / 180;
@@ -352,4 +352,90 @@ export function parseTimelineJson(json) {
   }
 
   return result;
+}
+
+export function getFullPeriodSummary(parsedTimeline) {
+  const defaultSummary = {
+    startDate: null,
+    endDate: null,
+    totalDays: 0,
+    allActivities: [],
+    allPoints: [],
+    totalDistanceMeters: 0,
+    usedModes: []
+  };
+
+  if (!parsedTimeline || typeof parsedTimeline !== 'object') {
+    return defaultSummary;
+  }
+
+  const dateKeys = Object.keys(parsedTimeline)
+    .filter(k => parsedTimeline[k] != null)
+    .sort();
+
+  if (dateKeys.length === 0) {
+    return defaultSummary;
+  }
+
+  const startDate = dateKeys[0];
+  const endDate = dateKeys[dateKeys.length - 1];
+
+  let totalDays = 0;
+  if (startDate && endDate) {
+    const [y1, m1, d1] = startDate.split('-').map(Number);
+    const [y2, m2, d2] = endDate.split('-').map(Number);
+    const utc1 = Date.UTC(y1, m1 - 1, d1);
+    const utc2 = Date.UTC(y2, m2 - 1, d2);
+    if (!isNaN(utc1) && !isNaN(utc2)) {
+      const msPerDay = 1000 * 60 * 60 * 24;
+      totalDays = Math.max(0, Math.round((utc2 - utc1) / msPerDay) + 1);
+    }
+  }
+
+  const allActivities = [];
+  for (const dateKey of dateKeys) {
+    const dayObj = parsedTimeline[dateKey];
+    if (dayObj && Array.isArray(dayObj.activities)) {
+      allActivities.push(...dayObj.activities);
+    }
+  }
+  allActivities.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+
+  const allPoints = [];
+  for (const activity of allActivities) {
+    if (activity.path && Array.isArray(activity.path)) {
+      for (const pt of activity.path) {
+        allPoints.push({
+          lat: pt.lat,
+          lng: pt.lng,
+          time: pt.time,
+          type: activity.type,
+          label: activity.label
+        });
+      }
+    }
+  }
+  allPoints.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+  let totalDistanceMeters = 0;
+  for (let i = 0; i < allPoints.length - 1; i++) {
+    totalDistanceMeters += getHaversineDistance(
+      allPoints[i].lat,
+      allPoints[i].lng,
+      allPoints[i + 1].lat,
+      allPoints[i + 1].lng
+    );
+  }
+
+  const usedModes = [...new Set(allActivities.map(a => a.type).filter(Boolean))];
+
+  return {
+    startDate,
+    endDate,
+    totalDays,
+    allActivities,
+    allPoints,
+    totalDistanceMeters,
+    usedModes
+  };
 }

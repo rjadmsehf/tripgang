@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTimelineJson } from './timelineParser';
+import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance } from './timelineParser';
 
 describe('timelineParser', () => {
   it('should parse semantic location monthly history JSON', () => {
@@ -103,5 +103,176 @@ describe('timelineParser', () => {
     expect(parsed['2026-08-24'].activities[0].path[0].lat).toBeCloseTo(37.5665);
     expect(parsed['2026-08-24'].activities[0].path[1].lat).toBeCloseTo(37.5685);
     expect(parsed['2026-08-24'].activities[1].type).toBe('STILL');
+  });
+
+  describe('getFullPeriodSummary', () => {
+    it('should return empty summary object when given null, undefined, or empty object', () => {
+      const defaultStructure = {
+        startDate: null,
+        endDate: null,
+        totalDays: 0,
+        allActivities: [],
+        allPoints: [],
+        totalDistanceMeters: 0,
+        usedModes: []
+      };
+
+      expect(getFullPeriodSummary(null)).toEqual(defaultStructure);
+      expect(getFullPeriodSummary(undefined)).toEqual(defaultStructure);
+      expect(getFullPeriodSummary({})).toEqual(defaultStructure);
+    });
+
+    it('should compute summary correctly for single-day timeline', () => {
+      const mockParsedTimeline = {
+        '2026-08-20': {
+          date: '2026-08-20',
+          activities: [
+            {
+              type: 'WALKING',
+              label: '걷기',
+              startTime: 1787220000000,
+              endTime: 1787221000000,
+              path: [
+                { lat: 37.5665, lng: 126.9780, time: 1787220000000 },
+                { lat: 37.5685, lng: 126.9980, time: 1787221000000 }
+              ]
+            }
+          ]
+        }
+      };
+
+      const summary = getFullPeriodSummary(mockParsedTimeline);
+      expect(summary.startDate).toBe('2026-08-20');
+      expect(summary.endDate).toBe('2026-08-20');
+      expect(summary.totalDays).toBe(1);
+      expect(summary.allActivities.length).toBe(1);
+      expect(summary.allPoints.length).toBe(2);
+      expect(summary.allPoints[0]).toEqual({
+        lat: 37.5665,
+        lng: 126.9780,
+        time: 1787220000000,
+        type: 'WALKING',
+        label: '걷기'
+      });
+      expect(summary.totalDistanceMeters).toBeGreaterThan(0);
+      expect(summary.usedModes).toEqual(['WALKING']);
+    });
+
+    it('should compute multi-day summary with calendar day differences and sorted activities', () => {
+      // Intentionally insert out of order
+      const mockParsedTimeline = {
+        '2026-08-22': {
+          date: '2026-08-22',
+          activities: [
+            {
+              type: 'FLYING',
+              label: '비행기',
+              startTime: 1787392800000,
+              endTime: 1787400000000,
+              path: [
+                { lat: 35.0, lng: 128.0, time: 1787392800000 },
+                { lat: 33.5, lng: 126.5, time: 1787400000000 }
+              ]
+            }
+          ]
+        },
+        '2026-08-20': {
+          date: '2026-08-20',
+          activities: [
+            {
+              type: 'WALKING',
+              label: '걷기',
+              startTime: 1787220000000,
+              endTime: 1787221000000,
+              path: [
+                { lat: 37.5665, lng: 126.9780, time: 1787220000000 },
+                { lat: 37.5685, lng: 126.9980, time: 1787221000000 }
+              ]
+            },
+            {
+              type: 'VEHICLE',
+              label: '자동차',
+              startTime: 1787225000000,
+              endTime: 1787230000000,
+              path: [
+                { lat: 37.5685, lng: 126.9980, time: 1787225000000 },
+                { lat: 37.5000, lng: 127.0000, time: 1787230000000 }
+              ]
+            }
+          ]
+        },
+        '2026-08-21': {
+          date: '2026-08-21',
+          activities: [
+            {
+              type: 'WALKING',
+              label: '걷기',
+              startTime: 1787306400000,
+              endTime: 1787310000000,
+              path: [
+                { lat: 37.5000, lng: 127.0000, time: 1787306400000 },
+                { lat: 37.5050, lng: 127.0050, time: 1787310000000 }
+              ]
+            }
+          ]
+        }
+      };
+
+      const summary = getFullPeriodSummary(mockParsedTimeline);
+      expect(summary.startDate).toBe('2026-08-20');
+      expect(summary.endDate).toBe('2026-08-22');
+      expect(summary.totalDays).toBe(3); // 20th, 21st, 22nd = 3 days
+
+      // Activities sorted chronologically
+      expect(summary.allActivities.length).toBe(4);
+      expect(summary.allActivities[0].startTime).toBe(1787220000000);
+      expect(summary.allActivities[1].startTime).toBe(1787225000000);
+      expect(summary.allActivities[2].startTime).toBe(1787306400000);
+      expect(summary.allActivities[3].startTime).toBe(1787392800000);
+
+      // Points flattened and sorted chronologically
+      expect(summary.allPoints.length).toBe(8);
+      for (let i = 0; i < summary.allPoints.length - 1; i++) {
+        expect(summary.allPoints[i].time).toBeLessThanOrEqual(summary.allPoints[i + 1].time);
+      }
+
+      // Modes deduplicated
+      expect(summary.usedModes).toEqual(['WALKING', 'VEHICLE', 'FLYING']);
+
+      // Cumulative Haversine distance
+      let expectedDist = 0;
+      for (let i = 0; i < summary.allPoints.length - 1; i++) {
+        expectedDist += getHaversineDistance(
+          summary.allPoints[i].lat,
+          summary.allPoints[i].lng,
+          summary.allPoints[i + 1].lat,
+          summary.allPoints[i + 1].lng
+        );
+      }
+      expect(summary.totalDistanceMeters).toBeCloseTo(expectedDist, 5);
+      expect(summary.totalDistanceMeters).toBeGreaterThan(0);
+    });
+
+    it('should calculate inclusive calendar days correctly across date gaps', () => {
+      const mockParsedTimeline = {
+        '2026-08-20': {
+          date: '2026-08-20',
+          activities: []
+        },
+        '2026-08-25': {
+          date: '2026-08-25',
+          activities: []
+        }
+      };
+
+      const summary = getFullPeriodSummary(mockParsedTimeline);
+      expect(summary.startDate).toBe('2026-08-20');
+      expect(summary.endDate).toBe('2026-08-25');
+      expect(summary.totalDays).toBe(6); // 20, 21, 22, 23, 24, 25 = 6 days
+      expect(summary.totalDistanceMeters).toBe(0);
+      expect(summary.allActivities).toEqual([]);
+      expect(summary.allPoints).toEqual([]);
+      expect(summary.usedModes).toEqual([]);
+    });
   });
 });
