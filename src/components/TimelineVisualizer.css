@@ -113,6 +113,58 @@
   padding-left: 0.5rem;
 }
 
+/* Full Period Trip Summary Card */
+.trip-summary-card {
+  gap: 0.85rem;
+}
+
+.summary-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.summary-title {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-secondary, #a1a1aa);
+}
+
+.summary-content {
+  font-size: 0.92rem;
+  color: #f4f4f5;
+  font-weight: 500;
+  line-height: 1.4;
+  word-break: break-all;
+}
+
+.mode-badges-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+  margin-top: 0.2rem;
+}
+
+.mode-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  background: rgba(39, 39, 42, 0.7);
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: #f4f4f5;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+  transition: all 0.2s ease;
+}
+
+.mode-badge:hover {
+  background: rgba(63, 63, 70, 0.8);
+  transform: translateY(-1px);
+}
+
 .export-progress-overlay {
   position: absolute;
   top: 0;
@@ -135,8 +187,8 @@
   left: 50%;
   transform: translateX(-50%);
   width: 90%;
-  max-width: 700px;
-  background: rgba(24, 24, 27, 0.9);
+  max-width: 720px;
+  background: rgba(24, 24, 27, 0.92);
   border: 1px solid rgba(63, 63, 70, 0.8);
   border-radius: 16px;
   padding: 1rem;
@@ -155,9 +207,39 @@
   gap: 1rem;
 }
 
+.current-playback-indicator {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #10b981;
+  background: rgba(16, 185, 129, 0.12);
+  border: 1px solid rgba(16, 185, 129, 0.3);
+  padding: 0.35rem 0.75rem;
+  border-radius: 8px;
+  white-space: nowrap;
+}
+
 .custom-emoji-icon {
   background: transparent;
   border: none;
+}
+
+/* Tooltip on Leaflet Marker */
+.leaflet-tooltip.timeline-marker-tooltip {
+  background: rgba(24, 24, 27, 0.92) !important;
+  border: 1px solid rgba(255, 255, 255, 0.2) !important;
+  color: #ffffff !important;
+  font-family: 'Outfit', sans-serif !important;
+  font-size: 0.85rem !important;
+  font-weight: 600 !important;
+  padding: 5px 10px !important;
+  border-radius: 8px !important;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.6) !important;
+  white-space: nowrap !important;
+  pointer-events: none !important;
+}
+
+.leaflet-tooltip.timeline-marker-tooltip::before {
+  border-top-color: rgba(24, 24, 27, 0.92) !important;
 }
 
 /* Timeline inputs */

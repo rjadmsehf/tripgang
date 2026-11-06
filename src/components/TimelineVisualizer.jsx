@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
-import { Play, Pause, RotateCcw, Download, Upload, MapPin, Eye } from 'lucide-react';
-import { parseTimelineJson } from '../services/timelineParser';
+import { Play, Pause, RotateCcw, Download, Upload, Eye } from 'lucide-react';
+import { parseTimelineJson, getFullPeriodSummary } from '../services/timelineParser';
 import './TimelineVisualizer.css';
 import gifshot from 'gifshot';
 
@@ -23,10 +23,31 @@ const ACTIVITY_EMOJIS = {
   STILL: '📍'
 };
 
+const ACTIVITY_LABELS = {
+  WALKING: '걷기',
+  VEHICLE: '자동차',
+  MOTORCYCLING: '오토바이',
+  FLYING: '비행기',
+  CYCLING: '자전거',
+  STILL: '정지'
+};
+
+function formatMarkerTooltip(timestamp, type) {
+  if (!timestamp) return '';
+  const d = new Date(timestamp);
+  if (isNaN(d.getTime())) return '';
+  const mm = String(d.getMonth() + 1).padStart(2, '0');
+  const dd = String(d.getDate()).padStart(2, '0');
+  const hh = String(d.getHours()).padStart(2, '0');
+  const min = String(d.getMinutes()).padStart(2, '0');
+  const emoji = ACTIVITY_EMOJIS[type] || '📍';
+  const label = ACTIVITY_LABELS[type] || type || '이동';
+  return `${mm}.${dd} ${hh}:${min} · ${emoji} ${label}`;
+}
+
 export default function TimelineVisualizer() {
   const [timelineData, setTimelineData] = useState(null);
-  const [dates, setDates] = useState([]);
-  const [selectedDate, setSelectedDate] = useState('');
+  const [tripSummary, setTripSummary] = useState(null);
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 1
@@ -47,9 +68,6 @@ export default function TimelineVisualizer() {
   const animationFrameRef = useRef(null);
   const lastTimeRef = useRef(null);
 
-  // Timeline statistics
-  const [selectedDayStats, setSelectedDayStats] = useState({ distance: 0, modes: [] });
-
   // Handle File upload
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -61,14 +79,13 @@ export default function TimelineVisualizer() {
       try {
         const json = JSON.parse(event.target.result);
         const parsed = parseTimelineJson(json);
-        const sortedDates = Object.keys(parsed).sort();
-        if (sortedDates.length === 0) {
+        const summary = getFullPeriodSummary(parsed);
+        if (!summary || summary.allPoints.length === 0) {
           alert('선택하신 JSON 파일에서 날짜별 이동 기록을 찾지 못했습니다.\n\n지원되는 구글 타임라인 파일 형식:\n1. 모바일 Google Maps 내보내기 (Timeline.json - semanticSegments)\n2. Google Takeout 월별 기록 (*_JANUARY.json 등)\n3. Google Takeout 원시 위치 기록 (Records.json)');
           return;
         }
         setTimelineData(parsed);
-        setDates(sortedDates);
-        setSelectedDate(sortedDates[0]);
+        setTripSummary(summary);
       } catch (err) {
         console.error('File parsing error:', err);
         alert('JSON 파일 형식이 올바르지 않거나 파싱에 실패했습니다.\n' + err.message);
@@ -105,30 +122,11 @@ export default function TimelineVisualizer() {
     };
   }, []);
 
-  // Get flat points array for the active day
-  const getActiveDayPoints = () => {
-    if (!timelineData || !selectedDate || !timelineData[selectedDate]) return [];
-    const activities = timelineData[selectedDate].activities;
-    let allPoints = [];
-    activities.forEach(act => {
-      act.path.forEach(pt => {
-        allPoints.push({
-          lat: pt.lat,
-          lng: pt.lng,
-          time: pt.time,
-          type: act.type,
-          label: act.label
-        });
-      });
-    });
-    return allPoints.sort((a, b) => a.time - b.time);
-  };
+  const activePoints = tripSummary ? tripSummary.allPoints : [];
 
-  const activePoints = getActiveDayPoints();
-
-  // Map stats & Polylines Update when date changes
+  // Draw full-period paths onto polylineGroupRef when tripSummary changes
   useEffect(() => {
-    if (!leafletMapInstance.current || activePoints.length === 0) return;
+    if (!leafletMapInstance.current || !polylineGroupRef.current) return;
 
     leafletMapInstance.current.invalidateSize();
 
@@ -141,17 +139,22 @@ export default function TimelineVisualizer() {
       markerRef.current = null;
     }
 
-    // Draw paths colored by activity type
-    const activities = timelineData[selectedDate].activities;
-    const modesSet = new Set();
-    activities.forEach(act => {
-      modesSet.add(act.label);
-      const polyLatLngs = act.path.map(p => [p.lat, p.lng]);
-      L.polyline(polyLatLngs, {
-        color: ACTIVITY_COLORS[act.type] || '#3b82f6',
-        weight: 5,
-        opacity: 0.85
-      }).addTo(polylineGroupRef.current);
+    if (!tripSummary || !tripSummary.allActivities || tripSummary.allActivities.length === 0) {
+      setProgress(0);
+      setIsPlaying(false);
+      return;
+    }
+
+    // Draw all paths colored by activity type
+    tripSummary.allActivities.forEach(act => {
+      if (act.path && act.path.length > 0) {
+        const polyLatLngs = act.path.map(p => [p.lat, p.lng]);
+        L.polyline(polyLatLngs, {
+          color: ACTIVITY_COLORS[act.type] || '#3b82f6',
+          weight: 4,
+          opacity: 0.85
+        }).addTo(polylineGroupRef.current);
+      }
     });
 
     // Fit map boundary
@@ -160,15 +163,9 @@ export default function TimelineVisualizer() {
       leafletMapInstance.current.fitBounds(bounds, { padding: [50, 50] });
     }
 
-    // Update statistics
-    setSelectedDayStats({
-      distance: activities.reduce((acc, act) => acc + (act.path.length > 1 ? 1 : 0), 0), // estimation placeholder
-      modes: Array.from(modesSet)
-    });
-
     setProgress(0);
     setIsPlaying(false);
-  }, [selectedDate, timelineData]);
+  }, [tripSummary]);
 
   // Animate marker in real-time
   useEffect(() => {
@@ -204,9 +201,15 @@ export default function TimelineVisualizer() {
     };
   }, [isPlaying, activePoints, speedMultiplier]);
 
-  // Update marker location based on progress slider/value
+  // Update marker location and tooltip based on progress slider/value
   useEffect(() => {
-    if (activePoints.length === 0 || !leafletMapInstance.current) return;
+    if (activePoints.length === 0 || !leafletMapInstance.current) {
+      if (markerRef.current) {
+        markerRef.current.remove();
+        markerRef.current = null;
+      }
+      return;
+    }
 
     const totalIndex = (activePoints.length - 1) * progress;
     const index = Math.floor(totalIndex);
@@ -215,32 +218,59 @@ export default function TimelineVisualizer() {
     let currentLat = activePoints[index].lat;
     let currentLng = activePoints[index].lng;
     let currentType = activePoints[index].type;
+    let currentTime = activePoints[index].time;
 
     if (remainder > 0 && index < activePoints.length - 1) {
       const nextPt = activePoints[index + 1];
       currentLat = currentLat + (nextPt.lat - currentLat) * remainder;
       currentLng = currentLng + (nextPt.lng - currentLng) * remainder;
+      if (nextPt.time != null && currentTime != null) {
+        currentTime = currentTime + (nextPt.time - currentTime) * remainder;
+      }
     }
 
     // Update marker or create if missing
     const emoji = ACTIVITY_EMOJIS[currentType] || '📍';
     const customIcon = L.divIcon({
-      html: `<div style="font-size: 24px; transform: translate(-10px, -20px);">${emoji}</div>`,
+      html: `<div style="font-size: 24px; transform: translate(-10px, -20px); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
       className: 'custom-emoji-icon'
     });
 
+    const tooltipContent = formatMarkerTooltip(currentTime, currentType);
+
     if (!markerRef.current) {
-      markerRef.current = L.marker([currentLat, currentLng], { icon: customIcon }).addTo(leafletMapInstance.current);
+      const marker = L.marker([currentLat, currentLng], { icon: customIcon }).addTo(leafletMapInstance.current);
+      markerRef.current = marker;
+      if (tooltipContent) {
+        marker.bindTooltip(tooltipContent, {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -20],
+          className: 'timeline-marker-tooltip'
+        }).openTooltip();
+      }
     } else {
       markerRef.current.setLatLng([currentLat, currentLng]);
       markerRef.current.setIcon(customIcon);
+      if (tooltipContent) {
+        if (markerRef.current.getTooltip()) {
+          markerRef.current.setTooltipContent(tooltipContent);
+        } else {
+          markerRef.current.bindTooltip(tooltipContent, {
+            permanent: true,
+            direction: 'top',
+            offset: [0, -20],
+            className: 'timeline-marker-tooltip'
+          }).openTooltip();
+        }
+      }
     }
 
     // Camera track
     if (cameraMode === 'follow') {
       leafletMapInstance.current.panTo([currentLat, currentLng]);
     }
-  }, [progress, cameraMode]);
+  }, [progress, cameraMode, activePoints]);
 
   // Canvas Frame Rendering and Encoder Pipeline
   const runExport = async () => {
@@ -305,7 +335,7 @@ export default function TimelineVisualizer() {
       });
     };
 
-    // Helper: Pre-load all tiles for the day bounding box
+    // Helper: Pre-load all tiles for the trip bounding box
     const tileCache = {};
     const centerTileX = Math.floor(lngToX(centerLng, zoom) / 256);
     const centerTileY = Math.floor(latToY(centerLat, zoom) / 256);
@@ -354,7 +384,9 @@ export default function TimelineVisualizer() {
         const nextPt = activePoints[index + 1];
         currentLat = currentLat + (nextPt.lat - currentLat) * remainder;
         currentLng = currentLng + (nextPt.lng - currentLng) * remainder;
-        currentTime = currentTime + (nextPt.time - currentTime) * remainder;
+        if (nextPt.time != null && currentTime != null) {
+          currentTime = currentTime + (nextPt.time - currentTime) * remainder;
+        }
       }
 
       if (cameraMode === 'follow') {
@@ -430,19 +462,24 @@ export default function TimelineVisualizer() {
       ctx.textBaseline = 'middle';
       ctx.fillText(emoji, markerX, markerY);
 
-      // Overlay time text
-      const timeStr = new Date(currentTime).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
-      ctx.fillStyle = 'rgba(24, 24, 27, 0.85)';
-      ctx.fillRect(10, 10, 140, 40);
-      ctx.strokeStyle = 'rgba(63, 63, 70, 0.8)';
-      ctx.lineWidth = 1;
-      ctx.strokeRect(10, 10, 140, 40);
+      // Overlay time text with date and mode
+      const overlayText = formatMarkerTooltip(currentTime, currentType);
+      if (overlayText) {
+        ctx.font = 'bold 15px sans-serif';
+        const textMetrics = ctx.measureText(overlayText);
+        const boxWidth = Math.max(160, textMetrics.width + 24);
 
-      ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 16px Outfit, sans-serif';
-      ctx.textAlign = 'left';
-      ctx.textBaseline = 'top';
-      ctx.fillText(timeStr, 25, 20);
+        ctx.fillStyle = 'rgba(24, 24, 27, 0.85)';
+        ctx.fillRect(10, 10, boxWidth, 38);
+        ctx.strokeStyle = 'rgba(63, 63, 70, 0.8)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(10, 10, boxWidth, 38);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(overlayText, 20, 29);
+      }
 
       // Record frames
       const dataUrl = canvas.toDataURL('image/png');
@@ -453,6 +490,10 @@ export default function TimelineVisualizer() {
       // Throttle rendering yield to keep browser UI alive
       await new Promise(r => setTimeout(r, 5));
     }
+
+    const downloadFileName = tripSummary?.startDate && tripSummary?.endDate
+      ? `timeline-${tripSummary.startDate}_to_${tripSummary.endDate}.${exportFormat}`
+      : `timeline-export.${exportFormat}`;
 
     // Process file export
     if (exportFormat === 'gif') {
@@ -465,7 +506,7 @@ export default function TimelineVisualizer() {
       }, (obj) => {
         if (!obj.error) {
           const link = document.createElement('a');
-          link.download = `timeline-${selectedDate}.gif`;
+          link.download = downloadFileName;
           link.href = obj.image;
           link.click();
         } else {
@@ -491,7 +532,7 @@ export default function TimelineVisualizer() {
         const blob = new Blob(recordedChunks, { type: 'video/webm' });
         const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
-        link.download = `timeline-${selectedDate}.webm`;
+        link.download = downloadFileName;
         link.href = url;
         link.click();
         URL.revokeObjectURL(url);
@@ -540,30 +581,37 @@ export default function TimelineVisualizer() {
           )}
         </div>
 
-        {dates.length > 0 && (
-          <div className="glass-input-card">
-            <h3>날짜 선택</h3>
-            <select 
-              value={selectedDate} 
-              onChange={(e) => setSelectedDate(e.target.value)}
-              className="timeline-select"
-            >
-              {dates.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
-          </div>
-        )}
-
-        {selectedDate && (
-          <div className="glass-input-card">
-            <h3>하루 요약</h3>
-            <p style={{ margin: 0, fontSize: '0.9rem', color: 'var(--text-secondary)' }}>날짜: {selectedDate}</p>
-            <p style={{ margin: '0.5rem 0 0.25rem 0', fontSize: '0.9rem', fontWeight: '600' }}>이동 수단:</p>
-            <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-              {selectedDayStats.modes.map(m => (
-                <span key={m} style={{ background: '#3f3f46', padding: '0.25rem 0.6rem', borderRadius: '6px', fontSize: '0.8rem', fontWeight: '500' }}>
-                  {m}
-                </span>
-              ))}
+        {tripSummary && (
+          <div className="glass-input-card trip-summary-card">
+            <h3>전체 여행 일정 요약</h3>
+            <div className="summary-field">
+              <span className="summary-title">🗓️ 여행 기간:</span>
+              <span className="summary-content">
+                {tripSummary.startDate} ~ {tripSummary.endDate} (총 {tripSummary.totalDays}일간)
+              </span>
+            </div>
+            <div className="summary-field">
+              <span className="summary-title">📏 총 이동 거리:</span>
+              <span className="summary-content">
+                {(tripSummary.totalDistanceMeters / 1000).toFixed(1)} km
+              </span>
+            </div>
+            <div className="summary-field">
+              <span className="summary-title">🚗 이용된 이동 수단:</span>
+              <div className="mode-badges-container">
+                {tripSummary.usedModes.map(mode => (
+                  <span
+                    key={mode}
+                    className="mode-badge"
+                    style={{
+                      borderColor: ACTIVITY_COLORS[mode] || '#3f3f46'
+                    }}
+                  >
+                    <span>{ACTIVITY_EMOJIS[mode] || '📍'}</span>
+                    <span>{ACTIVITY_LABELS[mode] || mode}</span>
+                  </span>
+                ))}
+              </div>
             </div>
           </div>
         )}
@@ -603,7 +651,7 @@ export default function TimelineVisualizer() {
               <h3 style={{ margin: '0 0 0.5rem 0', fontSize: '1.2rem', color: '#f8fafc' }}>구글 타임라인 JSON 파일을 등록해 주세요</h3>
               <p style={{ margin: '0 0 1rem 0', color: '#94a3b8', fontSize: '0.9rem', lineHeight: '1.5' }}>
                 좌측 패널의 <strong>[Google JSON 파일 선택]</strong>을 눌러 위치 기록 파일을 업로드하시면<br />
-                날짜별 이동 경로와 비행기, 자동차, 걷기 등의 시각화 애니메이션이 표시됩니다.
+                전체 여행 기간의 이동 경로와 비행기, 자동차, 걷기 등의 시각화 애니메이션이 표시됩니다.
               </p>
               <div className="supported-formats-box">
                 <span className="format-tag">✓ 모바일 Google Maps 내보내기 (Timeline.json)</span>
@@ -617,16 +665,40 @@ export default function TimelineVisualizer() {
         {activePoints.length > 0 && (
           <div className="playback-control-bar">
             <div className="playback-row">
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
-                <button onClick={() => setIsPlaying(!isPlaying)} style={{ background: '#3f3f46', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', transition: 'background-color 0.2s' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                <button
+                  onClick={() => {
+                    if (progress >= 1) setProgress(0);
+                    setIsPlaying(!isPlaying);
+                  }}
+                  style={{ background: '#3f3f46', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', transition: 'background-color 0.2s' }}
+                  title={isPlaying ? '일시 정지' : '재생'}
+                >
                   {isPlaying ? <Pause size={20} /> : <Play size={20} />}
                 </button>
-                <button onClick={() => setProgress(0)} style={{ background: '#3f3f46', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', transition: 'background-color 0.2s' }}>
+                <button
+                  onClick={() => {
+                    setIsPlaying(false);
+                    setProgress(0);
+                  }}
+                  style={{ background: '#3f3f46', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', transition: 'background-color 0.2s' }}
+                  title="처음으로 되감기"
+                >
                   <RotateCcw size={20} />
                 </button>
+                {activePoints.length > 0 && (
+                  <div className="current-playback-indicator">
+                    {(() => {
+                      const totalIdx = (activePoints.length - 1) * progress;
+                      const idx = Math.floor(totalIdx);
+                      const pt = activePoints[idx];
+                      return pt ? formatMarkerTooltip(pt.time, pt.type) : '';
+                    })()}
+                  </div>
+                )}
               </div>
 
-              <div style={{ display: 'flex', gap: '0.5rem' }}>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
                 <button onClick={() => setCameraMode(cameraMode === 'fit' ? 'follow' : 'fit')} style={{ background: cameraMode === 'follow' ? '#10b981' : '#3f3f46', border: 'none', borderRadius: '8px', padding: '0.5rem 1rem', display: 'flex', alignItems: 'center', gap: '0.25rem', cursor: 'pointer', color: 'white', fontWeight: 'bold', transition: 'background-color 0.2s' }}>
                   <Eye size={18} />
                   {cameraMode === 'follow' ? '카메라 추적 온' : '전체 보기'}
