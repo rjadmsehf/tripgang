@@ -239,18 +239,55 @@ describe('timelineParser', () => {
       // Modes deduplicated
       expect(summary.usedModes).toEqual(['WALKING', 'VEHICLE', 'FLYING']);
 
-      // Cumulative Haversine distance
+      // Cumulative Haversine distance within each activity (no inter-activity jump)
       let expectedDist = 0;
-      for (let i = 0; i < summary.allPoints.length - 1; i++) {
-        expectedDist += getHaversineDistance(
-          summary.allPoints[i].lat,
-          summary.allPoints[i].lng,
-          summary.allPoints[i + 1].lat,
-          summary.allPoints[i + 1].lng
-        );
+      for (const act of summary.allActivities) {
+        for (let i = 0; i < act.path.length - 1; i++) {
+          expectedDist += getHaversineDistance(
+            act.path[i].lat,
+            act.path[i].lng,
+            act.path[i + 1].lat,
+            act.path[i + 1].lng
+          );
+        }
       }
       expect(summary.totalDistanceMeters).toBeCloseTo(expectedDist, 5);
       expect(summary.totalDistanceMeters).toBeGreaterThan(0);
+    });
+
+    it('should calculate distance within activities and not jump across disjoint activities', () => {
+      const mockTimeline = {
+        '2026-08-20': {
+          date: '2026-08-20',
+          activities: [
+            {
+              type: 'WALKING',
+              startTime: 1000,
+              endTime: 2000,
+              path: [
+                { lat: 37.5000, lng: 127.0000, time: 1000 },
+                { lat: 37.5010, lng: 127.0010, time: 2000 }
+              ]
+            },
+            {
+              type: 'WALKING',
+              startTime: 3000,
+              endTime: 4000,
+              path: [
+                { lat: 35.1000, lng: 129.0000, time: 3000 }, // Far away in Busan (disjoint gap)
+                { lat: 35.1010, lng: 129.0010, time: 4000 }
+              ]
+            }
+          ]
+        }
+      };
+      const summary = getFullPeriodSummary(mockTimeline);
+      const d1 = getHaversineDistance(37.5000, 127.0000, 37.5010, 127.0010);
+      const d2 = getHaversineDistance(35.1000, 129.0000, 35.1010, 129.0010);
+      const gapDistance = getHaversineDistance(37.5010, 127.0010, 35.1000, 129.0000);
+
+      expect(summary.totalDistanceMeters).toBeCloseTo(d1 + d2, 4);
+      expect(summary.totalDistanceMeters).not.toBeCloseTo(d1 + d2 + gapDistance, 1);
     });
 
     it('should calculate inclusive calendar days correctly across date gaps', () => {

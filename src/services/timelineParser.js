@@ -418,13 +418,16 @@ export function getFullPeriodSummary(parsedTimeline) {
   allPoints.sort((a, b) => (a.time || 0) - (b.time || 0));
 
   let totalDistanceMeters = 0;
-  for (let i = 0; i < allPoints.length - 1; i++) {
-    totalDistanceMeters += getHaversineDistance(
-      allPoints[i].lat,
-      allPoints[i].lng,
-      allPoints[i + 1].lat,
-      allPoints[i + 1].lng
-    );
+  for (const activity of allActivities) {
+    if (activity.path && Array.isArray(activity.path) && activity.path.length >= 2) {
+      for (let i = 0; i < activity.path.length - 1; i++) {
+        const p1 = activity.path[i];
+        const p2 = activity.path[i + 1];
+        if (p1 && p2 && p1.lat != null && p1.lng != null && p2.lat != null && p2.lng != null) {
+          totalDistanceMeters += getHaversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+        }
+      }
+    }
   }
 
   const usedModes = [...new Set(allActivities.map(a => a.type).filter(Boolean))];
