@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance } from './timelineParser';
+import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing } from './timelineParser';
 
 describe('timelineParser', () => {
   it('should parse semantic location monthly history JSON', () => {
@@ -310,6 +310,52 @@ describe('timelineParser', () => {
       expect(summary.allActivities).toEqual([]);
       expect(summary.allPoints).toEqual([]);
       expect(summary.usedModes).toEqual([]);
+    });
+  });
+
+  describe('calculateBearing', () => {
+    it('should return 0 when start and end coordinates are identical', () => {
+      expect(calculateBearing(37.5665, 126.9780, 37.5665, 126.9780)).toBe(0);
+    });
+
+    it('should calculate bearing heading North (~0 deg)', () => {
+      const bearing = calculateBearing(0, 0, 10, 0);
+      expect(bearing).toBeCloseTo(0, 5);
+    });
+
+    it('should calculate bearing heading East (~90 deg)', () => {
+      const bearing = calculateBearing(0, 0, 0, 10);
+      expect(bearing).toBeCloseTo(90, 5);
+    });
+
+    it('should calculate bearing heading South (~180 deg)', () => {
+      const bearing = calculateBearing(10, 0, 0, 0);
+      expect(bearing).toBeCloseTo(180, 5);
+    });
+
+    it('should calculate bearing heading West (~270 deg)', () => {
+      const bearing = calculateBearing(0, 10, 0, 0);
+      expect(bearing).toBeCloseTo(270, 5);
+    });
+
+    it('should calculate bearing heading North-East (~45 deg from equator)', () => {
+      const bearing = calculateBearing(0, 0, 10, 10);
+      expect(bearing).toBeGreaterThan(44);
+      expect(bearing).toBeLessThan(46);
+    });
+
+    it('should always return a value in [0, 360)', () => {
+      const testCases = [
+        [37.5665, 126.9780, 35.1796, 129.0756],
+        [35.1796, 129.0756, 37.5665, 126.9780],
+        [37.5, 127.0, 37.5001, 126.9999],
+        [-33.8688, 151.2093, 37.5665, 126.9780]
+      ];
+      for (const [lat1, lon1, lat2, lon2] of testCases) {
+        const bearing = calculateBearing(lat1, lon1, lat2, lon2);
+        expect(bearing).toBeGreaterThanOrEqual(0);
+        expect(bearing).toBeLessThan(360);
+      }
     });
   });
 });

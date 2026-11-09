@@ -14,6 +14,18 @@ export function getHaversineDistance(lat1, lon1, lat2, lon2) {
   return R * c; // in meters
 }
 
+// Calculate initial bearing in degrees [0, 360) from (lat1, lon1) to (lat2, lon2)
+export function calculateBearing(lat1, lon1, lat2, lon2) {
+  if (lat1 === lat2 && lon1 === lon2) return 0;
+  const phi1 = (lat1 * Math.PI) / 180;
+  const phi2 = (lat2 * Math.PI) / 180;
+  const deltaLambda = ((lon2 - lon1) * Math.PI) / 180;
+  const y = Math.sin(deltaLambda) * Math.cos(phi2);
+  const x = Math.cos(phi1) * Math.sin(phi2) - Math.sin(phi1) * Math.cos(phi2) * Math.cos(deltaLambda);
+  const theta = Math.atan2(y, x);
+  return (theta * 180 / Math.PI + 360) % 360;
+}
+
 export function parseLatLng(point) {
   if (!point) return null;
 
