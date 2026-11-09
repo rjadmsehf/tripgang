@@ -207,6 +207,80 @@
   gap: 1rem;
 }
 
+/* Play & Pause Action Button */
+.timeline-play-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  padding: 0.55rem 1.15rem;
+  border-radius: 10px;
+  font-family: inherit;
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #ffffff;
+  border: none;
+  cursor: pointer;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.3);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.timeline-play-btn.paused {
+  background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+  box-shadow: 0 4px 14px rgba(16, 185, 129, 0.35);
+}
+
+.timeline-play-btn.paused:hover {
+  background: linear-gradient(135deg, #34d399 0%, #10b981 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(16, 185, 129, 0.45);
+}
+
+.timeline-play-btn.playing {
+  background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%);
+  box-shadow: 0 4px 14px rgba(99, 102, 241, 0.35);
+}
+
+.timeline-play-btn.playing:hover {
+  background: linear-gradient(135deg, #818cf8 0%, #a78bfa 100%);
+  transform: translateY(-1px);
+  box-shadow: 0 6px 18px rgba(99, 102, 241, 0.45);
+}
+
+.timeline-play-btn:active {
+  transform: scale(0.97);
+}
+
+/* Rewind Button */
+.timeline-rewind-btn {
+  background: #27272a;
+  border: 1px solid #3f3f46;
+  border-radius: 10px;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #e4e4e7;
+  transition: all 0.2s ease;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+}
+
+.timeline-rewind-btn:hover {
+  background: #3f3f46;
+  color: #ffffff;
+  transform: translateY(-1px);
+  border-color: #52525b;
+}
+
+.timeline-rewind-btn:active {
+  transform: scale(0.96);
+}
+
+/* Fixed-width Playback Indicator (Layout Shift Prevention) */
 .current-playback-indicator {
   font-size: 0.85rem;
   font-weight: 600;
@@ -216,6 +290,47 @@
   padding: 0.35rem 0.75rem;
   border-radius: 8px;
   white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+  height: 38px;
+  box-sizing: border-box;
+}
+
+.fixed-width-display {
+  display: inline-flex;
+  align-items: center;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  user-select: none;
+}
+
+.indicator-date {
+  display: inline-block;
+  width: 44px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.indicator-time {
+  display: inline-block;
+  width: 42px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.indicator-sep {
+  opacity: 0.45;
+  margin: 0 4px;
+}
+
+.indicator-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  width: 86px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .custom-emoji-icon {

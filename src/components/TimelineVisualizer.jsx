@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import L from 'leaflet';
 import { Play, Pause, RotateCcw, Download, Upload, Eye } from 'lucide-react';
-import { parseTimelineJson, getFullPeriodSummary } from '../services/timelineParser';
+import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing } from '../services/timelineParser';
 import './TimelineVisualizer.css';
 import gifshot from 'gifshot';
 
@@ -32,17 +32,32 @@ const ACTIVITY_LABELS = {
   STILL: '정지'
 };
 
-function formatMarkerTooltip(timestamp, type) {
-  if (!timestamp) return '';
+function getPlaybackIndicatorParts(timestamp, type) {
+  const emoji = ACTIVITY_EMOJIS[type] || '📍';
+  const label = ACTIVITY_LABELS[type] || type || '이동';
+  if (!timestamp) {
+    return { dateStr: '--.--', timeStr: '--:--', emoji, label };
+  }
   const d = new Date(timestamp);
-  if (isNaN(d.getTime())) return '';
+  if (isNaN(d.getTime())) {
+    return { dateStr: '--.--', timeStr: '--:--', emoji, label };
+  }
   const mm = String(d.getMonth() + 1).padStart(2, '0');
   const dd = String(d.getDate()).padStart(2, '0');
   const hh = String(d.getHours()).padStart(2, '0');
   const min = String(d.getMinutes()).padStart(2, '0');
-  const emoji = ACTIVITY_EMOJIS[type] || '📍';
-  const label = ACTIVITY_LABELS[type] || type || '이동';
-  return `${mm}.${dd} ${hh}:${min} · ${emoji} ${label}`;
+  return {
+    dateStr: `${mm}.${dd}`,
+    timeStr: `${hh}:${min}`,
+    emoji,
+    label
+  };
+}
+
+function formatMarkerTooltip(timestamp, type) {
+  const { dateStr, timeStr, emoji, label } = getPlaybackIndicatorParts(timestamp, type);
+  if (dateStr === '--.--') return '';
+  return `${dateStr} ${timeStr} · ${emoji} ${label}`;
 }
 
 export default function TimelineVisualizer() {
@@ -51,12 +66,12 @@ export default function TimelineVisualizer() {
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 1
-  const [speedMultiplier, setSpeedMultiplier] = useState(5);
+  const [speedMultiplier, setSpeedMultiplier] = useState(1);
   const [cameraMode, setCameraMode] = useState('fit'); // 'fit' or 'follow'
   
   // Export Settings
   const [exportFormat, setExportFormat] = useState('gif'); // 'gif' or 'mp4'
-  const [exportDuration, setExportDuration] = useState(15); // 15, 30, 45, 60
+  const [exportDuration, setExportDuration] = useState(60); // 30, 60, 90, 120
   const [isExporting, setIsExporting] = useState(false);
   const [exportProgress, setExportProgress] = useState(0);
   const [exportFrameImg, setExportFrameImg] = useState('');
@@ -182,7 +197,20 @@ export default function TimelineVisualizer() {
       lastTimeRef.current = timestamp;
 
       setProgress(prev => {
-        const next = prev + (delta / 1000 * speedMultiplier) / 100; // custom speed scale
+        const totalIndex = (activePoints.length - 1) * prev;
+        const index = Math.min(Math.floor(totalIndex), activePoints.length - 1);
+        const pt = activePoints[index];
+        const nextPt = index < activePoints.length - 1 ? activePoints[index + 1] : null;
+
+        let flightFactor = 1.0;
+        if (pt) {
+          const isAirplane = pt.type === 'FLYING' || (nextPt && getHaversineDistance(pt.lat, pt.lng, nextPt.lat, nextPt.lng) > 50000);
+          if (isAirplane) {
+            flightFactor = 0.4;
+          }
+        }
+
+        const next = prev + (delta / 1000 * speedMultiplier * flightFactor) / 75;
         if (next >= 1) {
           setIsPlaying(false);
           return 1;
@@ -212,16 +240,16 @@ export default function TimelineVisualizer() {
     }
 
     const totalIndex = (activePoints.length - 1) * progress;
-    const index = Math.floor(totalIndex);
+    const index = Math.min(Math.floor(totalIndex), activePoints.length - 1);
     const remainder = totalIndex - index;
 
     let currentLat = activePoints[index].lat;
     let currentLng = activePoints[index].lng;
     let currentType = activePoints[index].type;
     let currentTime = activePoints[index].time;
+    const nextPt = index < activePoints.length - 1 ? activePoints[index + 1] : null;
 
-    if (remainder > 0 && index < activePoints.length - 1) {
-      const nextPt = activePoints[index + 1];
+    if (remainder > 0 && nextPt) {
       currentLat = currentLat + (nextPt.lat - currentLat) * remainder;
       currentLng = currentLng + (nextPt.lng - currentLng) * remainder;
       if (nextPt.time != null && currentTime != null) {
@@ -230,13 +258,29 @@ export default function TimelineVisualizer() {
     }
 
     // Update marker or create if missing
-    const emoji = ACTIVITY_EMOJIS[currentType] || '📍';
+    const isAirplane = currentType === 'FLYING' || (nextPt && getHaversineDistance(currentLat, currentLng, nextPt.lat, nextPt.lng) > 50000);
+    const effectiveType = isAirplane ? 'FLYING' : currentType;
+    const emoji = ACTIVITY_EMOJIS[effectiveType] || '📍';
+
+    let markerHtml = '';
+    if (isAirplane) {
+      let bearing = 0;
+      if (nextPt) {
+        bearing = calculateBearing(currentLat, currentLng, nextPt.lat, nextPt.lng);
+      } else if (index > 0) {
+        bearing = calculateBearing(activePoints[index - 1].lat, activePoints[index - 1].lng, currentLat, currentLng);
+      }
+      markerHtml = `<div style="font-size: 30px; transform: translate(-14px, -14px) rotate(${bearing - 45}deg); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); transform-origin: center center; display: inline-block;">${emoji}</div>`;
+    } else {
+      markerHtml = `<div style="font-size: 24px; transform: translate(-10px, -20px); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`;
+    }
+
     const customIcon = L.divIcon({
-      html: `<div style="font-size: 24px; transform: translate(-10px, -20px); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`,
+      html: markerHtml,
       className: 'custom-emoji-icon'
     });
 
-    const tooltipContent = formatMarkerTooltip(currentTime, currentType);
+    const tooltipContent = formatMarkerTooltip(currentTime, effectiveType);
     const hasTooltip = Boolean(tooltipContent && tooltipContent.trim());
 
     if (!markerRef.current) {
@@ -379,16 +423,16 @@ export default function TimelineVisualizer() {
         let activeCenterLng = centerLng;
 
         const totalIndex = (activePoints.length - 1) * frameProgress;
-        const index = Math.floor(totalIndex);
+        const index = Math.min(Math.floor(totalIndex), activePoints.length - 1);
         const remainder = totalIndex - index;
 
         let currentLat = activePoints[index].lat;
         let currentLng = activePoints[index].lng;
         let currentType = activePoints[index].type;
         let currentTime = activePoints[index].time;
+        const nextPt = index < activePoints.length - 1 ? activePoints[index + 1] : null;
 
-        if (remainder > 0 && index < activePoints.length - 1) {
-          const nextPt = activePoints[index + 1];
+        if (remainder > 0 && nextPt) {
           currentLat = currentLat + (nextPt.lat - currentLat) * remainder;
           currentLng = currentLng + (nextPt.lng - currentLng) * remainder;
           if (nextPt.time != null && currentTime != null) {
@@ -463,14 +507,32 @@ export default function TimelineVisualizer() {
         // Draw Moving Emoji Marker
         const markerX = screenCenterX + (lngToX(currentLng, zoom) - mapCenterPixelX);
         const markerY = screenCenterY + (latToY(currentLat, zoom) - mapCenterPixelY);
-        const emoji = ACTIVITY_EMOJIS[currentType] || '📍';
-        ctx.font = '28px sans-serif';
+        
+        const isAirplane = currentType === 'FLYING' || (nextPt && getHaversineDistance(currentLat, currentLng, nextPt.lat, nextPt.lng) > 50000);
+        const effectiveType = isAirplane ? 'FLYING' : currentType;
+        const emoji = ACTIVITY_EMOJIS[effectiveType] || '📍';
+
+        ctx.save();
+        ctx.translate(markerX, markerY);
+        if (isAirplane) {
+          let bearing = 0;
+          if (nextPt) {
+            bearing = calculateBearing(currentLat, currentLng, nextPt.lat, nextPt.lng);
+          } else if (index > 0) {
+            bearing = calculateBearing(activePoints[index - 1].lat, activePoints[index - 1].lng, currentLat, currentLng);
+          }
+          ctx.rotate(((bearing - 45) * Math.PI) / 180);
+          ctx.font = '32px sans-serif';
+        } else {
+          ctx.font = '28px sans-serif';
+        }
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText(emoji, markerX, markerY);
+        ctx.fillText(emoji, 0, 0);
+        ctx.restore();
 
         // Overlay time text with date and mode
-        const overlayText = formatMarkerTooltip(currentTime, currentType);
+        const overlayText = formatMarkerTooltip(currentTime, effectiveType);
         if (overlayText && overlayText.trim()) {
           ctx.font = 'bold 15px sans-serif';
           const textMetrics = ctx.measureText(overlayText);
@@ -620,6 +682,30 @@ export default function TimelineVisualizer() {
     }
   };
 
+  const currentPointData = (() => {
+    if (activePoints.length === 0) {
+      return { dateStr: '--.--', timeStr: '--:--', emoji: '📍', label: '대기' };
+    }
+    const totalIdx = (activePoints.length - 1) * progress;
+    const idx = Math.min(Math.floor(totalIdx), activePoints.length - 1);
+    const remainder = totalIdx - idx;
+    const pt = activePoints[idx];
+    const nextPt = idx < activePoints.length - 1 ? activePoints[idx + 1] : null;
+
+    let timeVal = pt?.time;
+    if (remainder > 0 && nextPt && nextPt.time != null && timeVal != null) {
+      timeVal = timeVal + (nextPt.time - timeVal) * remainder;
+    }
+
+    let typeVal = pt?.type;
+    const isAirplane = typeVal === 'FLYING' || (nextPt && getHaversineDistance(pt.lat, pt.lng, nextPt.lat, nextPt.lng) > 50000);
+    if (isAirplane) {
+      typeVal = 'FLYING';
+    }
+
+    return getPlaybackIndicatorParts(timeVal, typeVal);
+  })();
+
   return (
     <div className="timeline-container">
       <aside className="timeline-sidebar">
@@ -689,10 +775,10 @@ export default function TimelineVisualizer() {
 
             <label style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>영상 재생 길이</label>
             <select value={exportDuration} onChange={(e) => setExportDuration(Number(e.target.value))} className="timeline-select">
-              <option value={15}>15초</option>
               <option value={30}>30초</option>
-              <option value={45}>45초</option>
-              <option value={60}>60초</option>
+              <option value={60}>60초 (기본값)</option>
+              <option value={90}>90초</option>
+              <option value={120}>120초 (2분)</option>
             </select>
 
             <button onClick={runExport} className="timeline-btn-primary" style={{ marginTop: '0.75rem' }}>
@@ -727,35 +813,35 @@ export default function TimelineVisualizer() {
         {activePoints.length > 0 && (
           <div className="playback-control-bar">
             <div className="playback-row">
-              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '0.6rem', alignItems: 'center' }}>
                 <button
                   onClick={() => {
                     if (progress >= 1) setProgress(0);
                     setIsPlaying(!isPlaying);
                   }}
-                  style={{ background: '#3f3f46', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', transition: 'background-color 0.2s' }}
-                  title={isPlaying ? '일시 정지' : '재생'}
+                  className={`timeline-play-btn ${isPlaying ? 'playing' : 'paused'}`}
+                  title={isPlaying ? '일시정지' : '재생하기'}
                 >
-                  {isPlaying ? <Pause size={20} /> : <Play size={20} />}
+                  {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+                  <span>{isPlaying ? '일시정지' : '재생하기'}</span>
                 </button>
                 <button
                   onClick={() => {
                     setIsPlaying(false);
                     setProgress(0);
                   }}
-                  style={{ background: '#3f3f46', border: 'none', borderRadius: '50%', width: '40px', height: '40px', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', color: 'white', transition: 'background-color 0.2s' }}
+                  className="timeline-rewind-btn"
                   title="처음으로 되감기"
                 >
-                  <RotateCcw size={20} />
+                  <RotateCcw size={18} />
                 </button>
                 {activePoints.length > 0 && (
-                  <div className="current-playback-indicator">
-                    {(() => {
-                      const totalIdx = (activePoints.length - 1) * progress;
-                      const idx = Math.floor(totalIdx);
-                      const pt = activePoints[idx];
-                      return pt ? formatMarkerTooltip(pt.time, pt.type) : '';
-                    })()}
+                  <div className="current-playback-indicator fixed-width-display">
+                    <span className="indicator-date">{currentPointData.dateStr}</span>
+                    <span className="indicator-sep">·</span>
+                    <span className="indicator-time">{currentPointData.timeStr}</span>
+                    <span className="indicator-sep">·</span>
+                    <span className="indicator-mode">{currentPointData.emoji} {currentPointData.label}</span>
                   </div>
                 )}
               </div>
@@ -767,10 +853,11 @@ export default function TimelineVisualizer() {
                 </button>
                 
                 <select value={speedMultiplier} onChange={(e) => setSpeedMultiplier(Number(e.target.value))} className="timeline-select">
-                  <option value={1}>1x 속도</option>
-                  <option value={5}>5x 속도</option>
-                  <option value={10}>10x 속도</option>
-                  <option value={20}>20x 속도</option>
+                  <option value={0.25}>0.25x (매우 느리게)</option>
+                  <option value={0.5}>0.5x (느리게)</option>
+                  <option value={1}>1x (보통 · 기본값)</option>
+                  <option value={2}>2x (빠르게)</option>
+                  <option value={4}>4x (매우 빠르게)</option>
                 </select>
               </div>
             </div>
