@@ -140,7 +140,8 @@ describe('timelineParser', () => {
         totalDistanceMeters: 0,
         usedModes: [],
         dateList: [],
-        byDate: {}
+        byDate: {},
+        itineraryList: []
       };
 
       expect(getFullPeriodSummary(null)).toEqual(defaultStructure);
@@ -352,6 +353,154 @@ describe('timelineParser', () => {
       expect(summary.dateList).toEqual(['2026-08-20', '2026-08-25']);
       expect(summary.byDate['2026-08-20'].date).toBe('2026-08-20');
       expect(summary.byDate['2026-08-25'].date).toBe('2026-08-25');
+    });
+
+    it('should generate itineraryList with placesSummary for multi-day timeline', () => {
+      const mockParsedTimeline = {
+        '2026-08-20': {
+          date: '2026-08-20',
+          activities: [
+            {
+              type: 'WALKING',
+              label: '걷기',
+              startTime: 1000,
+              endTime: 2000,
+              path: [
+                { lat: 35.6580, lng: 139.7016, time: 1000 },
+                { lat: 35.6590, lng: 139.7026, time: 2000 }
+              ]
+            },
+            {
+              type: 'STILL',
+              label: '시부야',
+              startTime: 2000,
+              endTime: 3000,
+              path: [
+                { lat: 35.6590, lng: 139.7026, time: 2000 },
+                { lat: 35.6590, lng: 139.7026, time: 3000 }
+              ]
+            },
+            {
+              type: 'VEHICLE',
+              label: '자동차',
+              startTime: 3000,
+              endTime: 4000,
+              path: [
+                { lat: 35.6590, lng: 139.7026, time: 3000 },
+                { lat: 35.6900, lng: 139.7000, time: 4000 }
+              ]
+            },
+            {
+              type: 'STILL',
+              label: '신주쿠',
+              startTime: 4000,
+              endTime: 5000,
+              path: [
+                { lat: 35.6900, lng: 139.7000, time: 4000 },
+                { lat: 35.6900, lng: 139.7000, time: 5000 }
+              ]
+            }
+          ]
+        },
+        '2026-08-21': {
+          date: '2026-08-21',
+          activities: [
+            {
+              type: 'STILL',
+              label: '도쿄 타워',
+              startTime: 10000,
+              endTime: 11000,
+              path: [
+                { lat: 35.6586, lng: 139.7454, time: 10000 },
+                { lat: 35.6586, lng: 139.7454, time: 11000 }
+              ]
+            }
+          ]
+        }
+      };
+
+      const summary = getFullPeriodSummary(mockParsedTimeline);
+      expect(summary.itineraryList).toBeDefined();
+      expect(summary.itineraryList.length).toBe(2);
+
+      const day1 = summary.itineraryList[0];
+      expect(day1.dayNum).toBe(1);
+      expect(day1.dateStr).toBe('2026-08-20');
+      expect(day1.displayDate).toBe('8월 20일');
+      expect(day1.placesSummary).toBe('시부야 ➔ 신주쿠');
+      expect(day1.distanceKm).toBeGreaterThan(0);
+      expect(day1.modes).toContain('걷기');
+      expect(day1.modes).toContain('자동차');
+
+      const day2 = summary.itineraryList[1];
+      expect(day2.dayNum).toBe(2);
+      expect(day2.dateStr).toBe('2026-08-21');
+      expect(day2.displayDate).toBe('8월 21일');
+      expect(day2.placesSummary).toBe('도쿄 타워');
+      expect(day2.distanceKm).toBe(0);
+      expect(day2.modes).toEqual([]);
+    });
+
+    it('should deduplicate consecutive places and filter generic place names in placesSummary', () => {
+      const mockParsedTimeline = {
+        '2026-08-24': {
+          date: '2026-08-24',
+          activities: [
+            { type: 'STILL', label: 'Unknown' },
+            { type: 'STILL', label: '시부야' },
+            { type: 'STILL', label: '시부야' },
+            { type: 'STILL', label: '정지' },
+            { type: 'STILL', label: '신주쿠' },
+            { type: 'STILL', label: '신주쿠' }
+          ]
+        }
+      };
+
+      const summary = getFullPeriodSummary(mockParsedTimeline);
+      expect(summary.itineraryList[0].placesSummary).toBe('시부야 ➔ 신주쿠');
+    });
+
+    it('should generate movement summary when no named places exist', () => {
+      const mockParsedTimeline = {
+        '2026-08-25': {
+          date: '2026-08-25',
+          activities: [
+            {
+              type: 'WALKING',
+              label: '걷기',
+              path: [
+                { lat: 37.5000, lng: 127.0000 },
+                { lat: 37.5180, lng: 127.0000 }
+              ]
+            },
+            {
+              type: 'VEHICLE',
+              label: '자동차',
+              path: [
+                { lat: 37.5180, lng: 127.0000 },
+                { lat: 37.6080, lng: 127.0000 }
+              ]
+            }
+          ]
+        },
+        '2026-08-26': {
+          date: '2026-08-26',
+          activities: [
+            {
+              type: 'WALKING',
+              label: '걷기',
+              path: [
+                { lat: 37.5000, lng: 127.0000 },
+                { lat: 37.5010, lng: 127.0000 }
+              ]
+            }
+          ]
+        }
+      };
+
+      const summary = getFullPeriodSummary(mockParsedTimeline);
+      expect(summary.itineraryList[0].placesSummary).toMatch(/도보 \d+(\.\d+)?km ➔ 차량 이동 \d+(\.\d+)?km/);
+      expect(summary.itineraryList[1].placesSummary).toBe('주요 이동: 걷기');
     });
   });
 

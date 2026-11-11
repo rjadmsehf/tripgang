@@ -366,6 +366,48 @@ export function parseTimelineJson(json) {
   return result;
 }
 
+function formatDisplayDate(dateStr) {
+  if (!dateStr || typeof dateStr !== 'string') return '';
+  const parts = dateStr.split('-');
+  if (parts.length === 3) {
+    const month = parseInt(parts[1], 10);
+    const day = parseInt(parts[2], 10);
+    if (!isNaN(month) && !isNaN(day)) {
+      return `${month}월 ${day}일`;
+    }
+  }
+  return dateStr;
+}
+
+function isGenericPlaceName(name) {
+  if (!name || typeof name !== 'string') return true;
+  const lower = name.trim().toLowerCase();
+  if (['unknown', '정지', '방문 장소', '방문장소', '알 수 없음'].includes(lower)) return true;
+  if (lower.startsWith('type_')) return true;
+  return false;
+}
+
+function getPlaceNameFromActivity(act) {
+  if (!act) return null;
+  if (act.name && typeof act.name === 'string') return act.name.trim();
+  if (act.placeName && typeof act.placeName === 'string') return act.placeName.trim();
+  if (act.location && typeof act.location.name === 'string') return act.location.name.trim();
+  if (act.type === 'STILL' && act.label && typeof act.label === 'string') return act.label.trim();
+  return null;
+}
+
+function getTransportLabel(act) {
+  if (!act) return null;
+  if (act.type === 'STILL') return null;
+  if (act.label && act.label !== '정지' && act.label !== '방문 장소') {
+    return act.label;
+  }
+  if (act.type) {
+    return getLabelFromType(act.type);
+  }
+  return null;
+}
+
 export function getFullPeriodSummary(parsedTimeline) {
   const defaultSummary = {
     startDate: null,
@@ -376,7 +418,8 @@ export function getFullPeriodSummary(parsedTimeline) {
     totalDistanceMeters: 0,
     usedModes: [],
     dateList: [],
-    byDate: {}
+    byDate: {},
+    itineraryList: []
   };
 
   if (!parsedTimeline || typeof parsedTimeline !== 'object') {
@@ -408,9 +451,11 @@ export function getFullPeriodSummary(parsedTimeline) {
 
   const dateList = [...dateKeys];
   const byDate = {};
+  const itineraryList = [];
 
   const allActivities = [];
-  for (const dateKey of dateKeys) {
+  for (let idx = 0; idx < dateKeys.length; idx++) {
+    const dateKey = dateKeys[idx];
     const dayObj = parsedTimeline[dateKey];
     const dayActivities = dayObj && Array.isArray(dayObj.activities) ? [...dayObj.activities] : [];
     dayActivities.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
@@ -439,6 +484,71 @@ export function getFullPeriodSummary(parsedTimeline) {
     if (dayObj && Array.isArray(dayObj.activities)) {
       allActivities.push(...dayObj.activities);
     }
+
+    // Daily itinerary summary
+    const dayNum = idx + 1;
+    const dateStr = dateKey;
+    const displayDate = formatDisplayDate(dateKey);
+
+    const modes = [...new Set(dayActivities.map(getTransportLabel).filter(Boolean))];
+
+    let dayDistanceMeters = 0;
+    let walkMeters = 0;
+    let vehMeters = 0;
+
+    for (const act of dayActivities) {
+      let actDist = 0;
+      if (act.path && Array.isArray(act.path) && act.path.length >= 2) {
+        for (let i = 0; i < act.path.length - 1; i++) {
+          const p1 = act.path[i];
+          const p2 = act.path[i + 1];
+          if (p1 && p2 && p1.lat != null && p1.lng != null && p2.lat != null && p2.lng != null) {
+            actDist += getHaversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+          }
+        }
+      }
+      dayDistanceMeters += actDist;
+      if (act.type === 'WALKING') {
+        walkMeters += actDist;
+      } else if (act.type === 'VEHICLE' || act.type === 'MOTORCYCLING' || act.type === 'FLYING') {
+        vehMeters += actDist;
+      }
+    }
+
+    const distanceKm = Number((dayDistanceMeters / 1000).toFixed(1));
+    const walkKm = Number((walkMeters / 1000).toFixed(1));
+    const vehKm = Number((vehMeters / 1000).toFixed(1));
+
+    const placeNames = dayActivities.map(getPlaceNameFromActivity).filter(Boolean);
+    const specificPlaces = placeNames.filter(name => !isGenericPlaceName(name));
+
+    let placesSummary = '';
+    if (specificPlaces.length > 0) {
+      const deduped = [];
+      for (const p of specificPlaces) {
+        if (deduped.length === 0 || deduped[deduped.length - 1] !== p) {
+          deduped.push(p);
+        }
+      }
+      placesSummary = deduped.slice(0, 4).join(' ➔ ');
+    } else {
+      if (walkKm > 0 && vehKm > 0) {
+        placesSummary = `도보 ${walkKm}km ➔ 차량 이동 ${vehKm}km`;
+      } else if (modes.length > 0) {
+        placesSummary = `주요 이동: ${modes.join(', ')}`;
+      } else {
+        placesSummary = '이동 없음';
+      }
+    }
+
+    itineraryList.push({
+      dayNum,
+      dateStr,
+      displayDate,
+      placesSummary,
+      distanceKm,
+      modes
+    });
   }
   allActivities.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
 
@@ -482,6 +592,7 @@ export function getFullPeriodSummary(parsedTimeline) {
     totalDistanceMeters,
     usedModes,
     dateList,
-    byDate
+    byDate,
+    itineraryList
   };
 }
