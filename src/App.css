@@ -32,9 +32,20 @@ body {
 .app-container.timeline-mode {
   display: flex;
   flex-direction: column;
+  width: 100%;
   max-width: 100%;
-  padding: 1.5rem 2rem;
+  padding: 0.35rem 0.6rem;
   box-sizing: border-box;
+}
+
+.app-container.timeline-mode .app-header {
+  padding-bottom: 0.5rem;
+  margin-bottom: 0.4rem;
+}
+
+.app-container.timeline-mode .app-header h1 {
+  margin: 0;
+  font-size: 1.4rem;
 }
 
 @media (max-width: 1200px) {
