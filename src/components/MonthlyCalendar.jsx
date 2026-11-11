@@ -163,7 +163,7 @@ export default function MonthlyCalendar({
     }
   };
 
-  const handleClick = (dateStr) => {
+  const handleDayClick = (dateStr) => {
     if (hasDraggedRef.current) {
       hasDraggedRef.current = false;
       return;
@@ -180,6 +180,7 @@ export default function MonthlyCalendar({
       setPendingClickStart(null);
     }
   };
+  const handleClick = handleDayClick;
 
   // Handle global mouseup if released outside calendar cells
   useEffect(() => {
@@ -320,7 +321,13 @@ export default function MonthlyCalendar({
         onMouseDown={() => handleMouseDown(dateStr)}
         onMouseEnter={() => handleMouseEnter(dateStr)}
         onMouseUp={() => handleMouseUp(dateStr)}
-        onClick={() => handleClick(dateStr)}
+        onClick={() => handleDayClick(dateStr)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            handleDayClick(dateStr);
+          }
+        }}
         title={hasTrip ? `${dateStr} (여행 기록 있음)` : dateStr}
         role="button"
         tabIndex={0}

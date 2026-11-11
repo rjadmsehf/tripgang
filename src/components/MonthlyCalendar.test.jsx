@@ -269,4 +269,33 @@ describe('MonthlyCalendar Component', () => {
 
     expect(handleResetAll).toHaveBeenCalled();
   });
+
+  it('triggers selection via keyboard Enter and Space keys on day cells', () => {
+    const handleDaySelect = vi.fn();
+    const handleRangeSelect = vi.fn();
+
+    render(
+      <MonthlyCalendar
+        tripSummary={mockTripSummary}
+        selectedRange={null}
+        onRangeSelect={handleRangeSelect}
+        selectedDay={null}
+        onDaySelect={handleDaySelect}
+      />
+    );
+
+    const day2 = screen.getByTestId('calendar-day-2024-05-02');
+    const day4 = screen.getByTestId('calendar-day-2024-05-04');
+
+    // Press Enter on day 2
+    fireEvent.keyDown(day2, { key: 'Enter' });
+    expect(handleDaySelect).toHaveBeenCalledWith('2024-05-02');
+
+    // Press Space on day 4
+    fireEvent.keyDown(day4, { key: ' ' });
+    expect(handleRangeSelect).toHaveBeenCalledWith({
+      start: '2024-05-02',
+      end: '2024-05-04'
+    });
+  });
 });

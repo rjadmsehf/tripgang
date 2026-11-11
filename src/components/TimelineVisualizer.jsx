@@ -332,10 +332,20 @@ export default function TimelineVisualizer() {
   };
 
   const handleViewRangeMap = () => {
-    if (leafletMapInstance.current && polylineGroupRef.current) {
-      const bounds = polylineGroupRef.current.getBounds();
-      if (bounds.isValid()) {
-        leafletMapInstance.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    if (leafletMapInstance.current) {
+      if (polylineGroupRef.current) {
+        const bounds = polylineGroupRef.current.getBounds();
+        if (bounds && bounds.isValid && bounds.isValid()) {
+          leafletMapInstance.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+          return;
+        }
+      }
+      if (activePoints && activePoints.length > 0 && typeof L.latLngBounds === 'function') {
+        const latLngs = activePoints.map(p => [p.lat, p.lng]);
+        const ptBounds = L.latLngBounds(latLngs);
+        if (ptBounds && ptBounds.isValid && ptBounds.isValid()) {
+          leafletMapInstance.current.fitBounds(ptBounds, { padding: [30, 30], maxZoom: 16 });
+        }
       }
     }
   };
@@ -409,6 +419,13 @@ export default function TimelineVisualizer() {
     }
 
     if (!activeActivities || activeActivities.length === 0) {
+      if (activePoints && activePoints.length > 0 && typeof L.latLngBounds === 'function') {
+        const latLngs = activePoints.map(p => [p.lat, p.lng]);
+        const ptBounds = L.latLngBounds(latLngs);
+        if (ptBounds && ptBounds.isValid && ptBounds.isValid()) {
+          leafletMapInstance.current.fitBounds(ptBounds, { padding: [30, 30], maxZoom: 16 });
+        }
+      }
       setProgress(0);
       setIsPlaying(false);
       return;
@@ -428,8 +445,14 @@ export default function TimelineVisualizer() {
 
     // Fit map boundary
     const bounds = polylineGroupRef.current.getBounds();
-    if (bounds.isValid()) {
-      leafletMapInstance.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+    if (bounds && bounds.isValid && bounds.isValid()) {
+      leafletMapInstance.current.fitBounds(bounds, { padding: [30, 30], maxZoom: 16 });
+    } else if (activePoints && activePoints.length > 0 && typeof L.latLngBounds === 'function') {
+      const latLngs = activePoints.map(p => [p.lat, p.lng]);
+      const ptBounds = L.latLngBounds(latLngs);
+      if (ptBounds && ptBounds.isValid && ptBounds.isValid()) {
+        leafletMapInstance.current.fitBounds(ptBounds, { padding: [30, 30], maxZoom: 16 });
+      }
     }
 
     setProgress(0);
