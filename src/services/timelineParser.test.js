@@ -55,6 +55,30 @@ describe('timelineParser', () => {
     expect(acts[1].type).toBe('FLYING');
   });
 
+  it('should classify speeds up to 250 km/h (70 m/s) as VEHICLE and above 250 km/h as FLYING', () => {
+    const mockJson = {
+      locations: [
+        // 150 km/h (~41.7 m/s): lat diff 0.03752 deg in 100s -> VEHICLE
+        { latitudeE7: 370000000, longitudeE7: 127000000, timestamp: '2026-08-24T10:00:00.000Z' },
+        { latitudeE7: 370375200, longitudeE7: 127000000, timestamp: '2026-08-24T10:01:40.000Z' },
+        // 200 km/h (~55.6 m/s): high-speed train/car, was FLYING under old 50 m/s limit -> now VEHICLE
+        { latitudeE7: 371000000, longitudeE7: 127000000, timestamp: '2026-08-24T11:00:00.000Z' },
+        { latitudeE7: 371500270, longitudeE7: 127000000, timestamp: '2026-08-24T11:01:40.000Z' },
+        // 300 km/h (~83.3 m/s): airplane speed -> FLYING
+        { latitudeE7: 372000000, longitudeE7: 127000000, timestamp: '2026-08-24T12:00:00.000Z' },
+        { latitudeE7: 372750000, longitudeE7: 127000000, timestamp: '2026-08-24T12:01:40.000Z' }
+      ]
+    };
+
+    const parsed = parseTimelineJson(mockJson);
+    expect(parsed['2026-08-24']).toBeDefined();
+    const acts = parsed['2026-08-24'].activities;
+    expect(acts.length).toBe(3);
+    expect(acts[0].type).toBe('VEHICLE');
+    expect(acts[1].type).toBe('VEHICLE');
+    expect(acts[2].type).toBe('FLYING');
+  });
+
   it('should parse timestampMs and startTimestampMs format variations', () => {
     const mockJson = {
       locations: [
@@ -114,7 +138,9 @@ describe('timelineParser', () => {
         allActivities: [],
         allPoints: [],
         totalDistanceMeters: 0,
-        usedModes: []
+        usedModes: [],
+        dateList: [],
+        byDate: {}
       };
 
       expect(getFullPeriodSummary(null)).toEqual(defaultStructure);
@@ -156,6 +182,11 @@ describe('timelineParser', () => {
       });
       expect(summary.totalDistanceMeters).toBeGreaterThan(0);
       expect(summary.usedModes).toEqual(['WALKING']);
+      expect(summary.dateList).toEqual(['2026-08-20']);
+      expect(summary.byDate['2026-08-20']).toBeDefined();
+      expect(summary.byDate['2026-08-20'].date).toBe('2026-08-20');
+      expect(summary.byDate['2026-08-20'].activities.length).toBe(1);
+      expect(summary.byDate['2026-08-20'].points.length).toBe(2);
     });
 
     it('should compute multi-day summary with calendar day differences and sorted activities', () => {
@@ -238,6 +269,14 @@ describe('timelineParser', () => {
 
       // Modes deduplicated
       expect(summary.usedModes).toEqual(['WALKING', 'VEHICLE', 'FLYING']);
+      expect(summary.dateList).toEqual(['2026-08-20', '2026-08-21', '2026-08-22']);
+      expect(Object.keys(summary.byDate)).toEqual(['2026-08-20', '2026-08-21', '2026-08-22']);
+      expect(summary.byDate['2026-08-20'].activities.length).toBe(2);
+      expect(summary.byDate['2026-08-20'].points.length).toBe(4);
+      expect(summary.byDate['2026-08-21'].activities.length).toBe(1);
+      expect(summary.byDate['2026-08-21'].points.length).toBe(2);
+      expect(summary.byDate['2026-08-22'].activities.length).toBe(1);
+      expect(summary.byDate['2026-08-22'].points.length).toBe(2);
 
       // Cumulative Haversine distance within each activity (no inter-activity jump)
       let expectedDist = 0;
@@ -310,6 +349,9 @@ describe('timelineParser', () => {
       expect(summary.allActivities).toEqual([]);
       expect(summary.allPoints).toEqual([]);
       expect(summary.usedModes).toEqual([]);
+      expect(summary.dateList).toEqual(['2026-08-20', '2026-08-25']);
+      expect(summary.byDate['2026-08-20'].date).toBe('2026-08-20');
+      expect(summary.byDate['2026-08-25'].date).toBe('2026-08-25');
     });
   });
 

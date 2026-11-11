@@ -312,7 +312,7 @@ export function parseTimelineJson(json) {
           type = 'WALKING';
         } else if (speed >= 2.0 && speed < 8.0) {
           type = 'CYCLING';
-        } else if (speed >= 8.0 && speed < 50.0) {
+        } else if (speed >= 8.0 && speed < 70.0) {
           type = 'VEHICLE';
         } else {
           type = 'FLYING';
@@ -374,7 +374,9 @@ export function getFullPeriodSummary(parsedTimeline) {
     allActivities: [],
     allPoints: [],
     totalDistanceMeters: 0,
-    usedModes: []
+    usedModes: [],
+    dateList: [],
+    byDate: {}
   };
 
   if (!parsedTimeline || typeof parsedTimeline !== 'object') {
@@ -404,9 +406,36 @@ export function getFullPeriodSummary(parsedTimeline) {
     }
   }
 
+  const dateList = [...dateKeys];
+  const byDate = {};
+
   const allActivities = [];
   for (const dateKey of dateKeys) {
     const dayObj = parsedTimeline[dateKey];
+    const dayActivities = dayObj && Array.isArray(dayObj.activities) ? [...dayObj.activities] : [];
+    dayActivities.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+
+    const dayPoints = [];
+    for (const act of dayActivities) {
+      if (act.path && Array.isArray(act.path)) {
+        for (const pt of act.path) {
+          dayPoints.push({
+            lat: pt.lat,
+            lng: pt.lng,
+            time: pt.time,
+            type: act.type,
+            label: act.label
+          });
+        }
+      }
+    }
+    dayPoints.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+    byDate[dateKey] = {
+      date: dateKey,
+      activities: dayActivities,
+      points: dayPoints
+    };
     if (dayObj && Array.isArray(dayObj.activities)) {
       allActivities.push(...dayObj.activities);
     }
@@ -451,6 +480,8 @@ export function getFullPeriodSummary(parsedTimeline) {
     allActivities,
     allPoints,
     totalDistanceMeters,
-    usedModes
+    usedModes,
+    dateList,
+    byDate
   };
 }
