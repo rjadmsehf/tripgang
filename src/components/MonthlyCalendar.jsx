@@ -180,7 +180,6 @@ export default function MonthlyCalendar({
       setPendingClickStart(null);
     }
   };
-  const handleClick = handleDayClick;
 
   // Handle global mouseup if released outside calendar cells
   useEffect(() => {
