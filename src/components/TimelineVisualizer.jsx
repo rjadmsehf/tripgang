@@ -72,6 +72,9 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
   let mmDd = '--.--';
   let timeStr = '--:--';
   let dateKey = null;
+  let yyyyVal = null;
+  let mmVal = null;
+  let ddVal = null;
 
   if (timeVal != null) {
     const d = new Date(timeVal);
@@ -82,6 +85,9 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
       const hh = String(d.getHours()).padStart(2, '0');
       const min = String(d.getMinutes()).padStart(2, '0');
       dateKey = `${yyyy}-${mm}-${dd}`;
+      yyyyVal = String(yyyy);
+      mmVal = mm;
+      ddVal = dd;
       mmDd = `${mm}.${dd}`;
       timeStr = `${hh}:${min}`;
 
@@ -119,7 +125,20 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
     dateKey = tripSummary.dateList[dayNum - 1] || tripSummary.dateList[0];
   }
 
-  const dayBadge = `Day ${dayNum} · ${mmDd}`;
+  if ((!yyyyVal || !mmVal || !ddVal) && dateKey && typeof dateKey === 'string' && dateKey.includes('-')) {
+    const parts = dateKey.split('-');
+    if (parts.length === 3) {
+      yyyyVal = parts[0];
+      mmVal = parts[1].padStart(2, '0');
+      ddVal = parts[2].padStart(2, '0');
+    }
+  }
+
+  const formattedDate = (yyyyVal && mmVal && ddVal)
+    ? `${yyyyVal}.${mmVal}.${ddVal}`
+    : mmDd;
+
+  const dayBadge = `Day ${dayNum} · ${formattedDate}`;
   const fullText = `${dayBadge} · ${emoji} ${label}`;
 
   return {

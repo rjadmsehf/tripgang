@@ -194,8 +194,8 @@ describe('TimelineVisualizer Component', () => {
     expect(info.dayNum).toBe(2);
     expect(info.emoji).toBe('🚶');
     expect(info.label).toBe('걷기');
-    expect(info.fullText).toContain('Day 2');
-    expect(info.fullText).toContain('🚶 걷기');
+    expect(info.dayBadge).toBe('Day 2 · 2026.08.25');
+    expect(info.fullText).toBe('Day 2 · 2026.08.25 · 🚶 걷기');
   });
 
   it('renders ultra-slow speed options 0.05x and 0.1x correctly', async () => {

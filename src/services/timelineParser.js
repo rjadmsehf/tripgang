@@ -366,14 +366,15 @@ export function parseTimelineJson(json) {
   return result;
 }
 
-function formatDisplayDate(dateStr) {
+export function formatDisplayDate(dateStr) {
   if (!dateStr || typeof dateStr !== 'string') return '';
   const parts = dateStr.split('-');
   if (parts.length === 3) {
+    const year = parseInt(parts[0], 10);
     const month = parseInt(parts[1], 10);
     const day = parseInt(parts[2], 10);
-    if (!isNaN(month) && !isNaN(day)) {
-      return `${month}월 ${day}일`;
+    if (!isNaN(year) && !isNaN(month) && !isNaN(day)) {
+      return `${year}년 ${month}월 ${day}일`;
     }
   }
   return dateStr;
@@ -541,10 +542,15 @@ export function getFullPeriodSummary(parsedTimeline) {
       }
     }
 
+    const [yyyy, mm, dd] = dateKey.split('-').map(Number);
+
     itineraryList.push({
       dayNum,
       dateStr,
       displayDate,
+      year: isNaN(yyyy) ? null : yyyy,
+      month: isNaN(mm) ? null : mm,
+      day: isNaN(dd) ? null : dd,
       placesSummary,
       distanceKm,
       modes
@@ -594,5 +600,109 @@ export function getFullPeriodSummary(parsedTimeline) {
     dateList,
     byDate,
     itineraryList
+  };
+}
+
+export function filterSummaryByRange(tripSummary, startDate, endDate) {
+  const defaultSummary = {
+    startDate: null,
+    endDate: null,
+    totalDays: 0,
+    allActivities: [],
+    allPoints: [],
+    totalDistanceMeters: 0,
+    usedModes: [],
+    dateList: [],
+    byDate: {},
+    itineraryList: []
+  };
+
+  if (!tripSummary || typeof tripSummary !== 'object') {
+    return defaultSummary;
+  }
+
+  const allDates = Array.isArray(tripSummary.dateList) ? tripSummary.dateList : [];
+  const filteredDates = allDates.filter(d => {
+    if (startDate && d < startDate) return false;
+    if (endDate && d > endDate) return false;
+    return true;
+  });
+
+  if (filteredDates.length === 0) {
+    return defaultSummary;
+  }
+
+  const rangeStart = filteredDates[0];
+  const rangeEnd = filteredDates[filteredDates.length - 1];
+
+  let totalDays = 0;
+  if (rangeStart && rangeEnd) {
+    const [y1, m1, d1] = rangeStart.split('-').map(Number);
+    const [y2, m2, d2] = rangeEnd.split('-').map(Number);
+    const utc1 = Date.UTC(y1, m1 - 1, d1);
+    const utc2 = Date.UTC(y2, m2 - 1, d2);
+    if (!isNaN(utc1) && !isNaN(utc2)) {
+      const msPerDay = 1000 * 60 * 60 * 24;
+      totalDays = Math.max(0, Math.round((utc2 - utc1) / msPerDay) + 1);
+    }
+  }
+
+  const byDate = {};
+  const allActivities = [];
+  const allPoints = [];
+
+  for (const dateKey of filteredDates) {
+    const dayData = tripSummary.byDate?.[dateKey];
+    if (dayData) {
+      byDate[dateKey] = dayData;
+      if (Array.isArray(dayData.activities)) {
+        allActivities.push(...dayData.activities);
+      }
+      if (Array.isArray(dayData.points)) {
+        allPoints.push(...dayData.points);
+      }
+    }
+  }
+
+  allActivities.sort((a, b) => (a.startTime || 0) - (b.startTime || 0));
+  allPoints.sort((a, b) => (a.time || 0) - (b.time || 0));
+
+  let totalDistanceMeters = 0;
+  for (const activity of allActivities) {
+    if (activity.path && Array.isArray(activity.path) && activity.path.length >= 2) {
+      for (let i = 0; i < activity.path.length - 1; i++) {
+        const p1 = activity.path[i];
+        const p2 = activity.path[i + 1];
+        if (p1 && p2 && p1.lat != null && p1.lng != null && p2.lat != null && p2.lng != null) {
+          totalDistanceMeters += getHaversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+        }
+      }
+    }
+  }
+
+  const usedModes = [...new Set(allActivities.map(a => a.type).filter(Boolean))];
+
+  const filteredItinerary = (tripSummary.itineraryList || [])
+    .filter(item => {
+      if (startDate && item.dateStr < startDate) return false;
+      if (endDate && item.dateStr > endDate) return false;
+      return true;
+    })
+    .map((item, idx) => ({
+      ...item,
+      dayNum: idx + 1
+    }));
+
+  return {
+    startDate: rangeStart,
+    endDate: rangeEnd,
+    totalDays,
+    allActivities,
+    allPoints,
+    totalDistanceMeters,
+    usedModes,
+    dateList: filteredDates,
+    byDate,
+    itineraryList: filteredItinerary
   };
 }

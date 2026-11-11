@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing } from './timelineParser';
+import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing, formatDisplayDate, filterSummaryByRange } from './timelineParser';
 
 describe('timelineParser', () => {
   it('should parse semantic location monthly history JSON', () => {
@@ -426,7 +426,10 @@ describe('timelineParser', () => {
       const day1 = summary.itineraryList[0];
       expect(day1.dayNum).toBe(1);
       expect(day1.dateStr).toBe('2026-08-20');
-      expect(day1.displayDate).toBe('8월 20일');
+      expect(day1.year).toBe(2026);
+      expect(day1.month).toBe(8);
+      expect(day1.day).toBe(20);
+      expect(day1.displayDate).toBe('2026년 8월 20일');
       expect(day1.placesSummary).toBe('시부야 ➔ 신주쿠');
       expect(day1.distanceKm).toBeGreaterThan(0);
       expect(day1.modes).toContain('걷기');
@@ -435,7 +438,10 @@ describe('timelineParser', () => {
       const day2 = summary.itineraryList[1];
       expect(day2.dayNum).toBe(2);
       expect(day2.dateStr).toBe('2026-08-21');
-      expect(day2.displayDate).toBe('8월 21일');
+      expect(day2.year).toBe(2026);
+      expect(day2.month).toBe(8);
+      expect(day2.day).toBe(21);
+      expect(day2.displayDate).toBe('2026년 8월 21일');
       expect(day2.placesSummary).toBe('도쿄 타워');
       expect(day2.distanceKm).toBe(0);
       expect(day2.modes).toEqual([]);
@@ -547,6 +553,52 @@ describe('timelineParser', () => {
         expect(bearing).toBeGreaterThanOrEqual(0);
         expect(bearing).toBeLessThan(360);
       }
+    });
+  });
+
+  describe('Year display and Range filtering', () => {
+    it('formatDisplayDate should format date with year', () => {
+      expect(formatDisplayDate('2024-08-01')).toBe('2024년 8월 1일');
+      expect(formatDisplayDate('2023-12-25')).toBe('2023년 12월 25일');
+      expect(formatDisplayDate('')).toBe('');
+      expect(formatDisplayDate(null)).toBe('');
+    });
+
+    it('filterSummaryByRange should filter dates and points within range', () => {
+      const mockSummary = {
+        dateList: ['2024-05-01', '2024-05-02', '2024-05-03', '2024-05-04'],
+        byDate: {
+          '2024-05-01': { activities: [{ type: 'WALKING' }], points: [{ lat: 35.1, lng: 139.1, time: 100 }] },
+          '2024-05-02': { activities: [{ type: 'VEHICLE' }], points: [{ lat: 35.2, lng: 139.2, time: 200 }] },
+          '2024-05-03': { activities: [{ type: 'FLYING' }], points: [{ lat: 35.3, lng: 139.3, time: 300 }] },
+          '2024-05-04': { activities: [{ type: 'WALKING' }], points: [{ lat: 35.4, lng: 139.4, time: 400 }] }
+        },
+        itineraryList: [
+          { dayNum: 1, dateStr: '2024-05-01', displayDate: '2024년 5월 1일', distanceKm: 5 },
+          { dayNum: 2, dateStr: '2024-05-02', displayDate: '2024년 5월 2일', distanceKm: 20 },
+          { dayNum: 3, dateStr: '2024-05-03', displayDate: '2024년 5월 3일', distanceKm: 500 },
+          { dayNum: 4, dateStr: '2024-05-04', displayDate: '2024년 5월 4일', distanceKm: 2 }
+        ]
+      };
+
+      const filtered = filterSummaryByRange(mockSummary, '2024-05-02', '2024-05-03');
+      expect(filtered.dateList).toEqual(['2024-05-02', '2024-05-03']);
+      expect(filtered.totalDays).toBe(2);
+      expect(filtered.allPoints.length).toBe(2);
+      expect(filtered.itineraryList.length).toBe(2);
+      expect(filtered.itineraryList[0].dayNum).toBe(1);
+      expect(filtered.itineraryList[0].dateStr).toBe('2024-05-02');
+      expect(filtered.itineraryList[1].dayNum).toBe(2);
+      expect(filtered.itineraryList[1].dateStr).toBe('2024-05-03');
+      expect(filtered.startDate).toBe('2024-05-02');
+      expect(filtered.endDate).toBe('2024-05-03');
+    });
+
+    it('filterSummaryByRange should handle edge cases like null summary or empty range', () => {
+      const emptyFiltered = filterSummaryByRange(null, '2024-05-01', '2024-05-02');
+      expect(emptyFiltered.totalDays).toBe(0);
+      expect(emptyFiltered.dateList).toEqual([]);
+      expect(emptyFiltered.itineraryList).toEqual([]);
     });
   });
 });
