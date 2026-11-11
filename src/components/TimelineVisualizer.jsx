@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import L from 'leaflet';
 import { Play, Pause, RotateCcw, Download, Upload, Eye, PanelRightClose, PanelRightOpen, Calendar } from 'lucide-react';
-import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing } from '../services/timelineParser';
+import { parseTimelineJson, getFullPeriodSummary, filterSummaryByRange, getHaversineDistance, calculateBearing } from '../services/timelineParser';
+import MonthlyCalendar from './MonthlyCalendar';
 import './TimelineVisualizer.css';
 import gifshot from 'gifshot';
 
@@ -161,6 +162,11 @@ export default function TimelineVisualizer() {
   const [tripSummary, setTripSummary] = useState(null);
   const [uploadedFileName, setUploadedFileName] = useState('');
   const [selectedDayFilter, setSelectedDayFilter] = useState('ALL');
+  const [selectedRange, setSelectedRange] = useState(null); // { start: string, end: string } | null
+  const [filterMode, setFilterMode] = useState('ALL'); // 'ALL' | 'SINGLE' | 'RANGE'
+  const [rangeStartSelect, setRangeStartSelect] = useState('');
+  const [rangeEndSelect, setRangeEndSelect] = useState('');
+  const [rightPanelTab, setRightPanelTab] = useState('calendar'); // 'calendar' | 'list'
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 1
   const [speedMultiplier, setSpeedMultiplier] = useState(1);
@@ -181,22 +187,31 @@ export default function TimelineVisualizer() {
   const animationFrameRef = useRef(null);
   const lastTimeRef = useRef(null);
 
-  // Filtered Activities & Points based on selectedDayFilter
-  const activeActivities = useMemo(() => {
-    if (!tripSummary) return [];
-    if (selectedDayFilter === 'ALL') {
-      return tripSummary.allActivities || [];
+  // Active filtered summary based on selectedRange
+  const activeSummary = useMemo(() => {
+    if (!tripSummary) return null;
+    if (selectedRange && selectedRange.start && selectedRange.end) {
+      return filterSummaryByRange(tripSummary, selectedRange.start, selectedRange.end);
     }
-    return tripSummary.byDate?.[selectedDayFilter]?.activities || [];
-  }, [tripSummary, selectedDayFilter]);
+    return tripSummary;
+  }, [tripSummary, selectedRange]);
+
+  // Filtered Activities & Points based on activeSummary and selectedDayFilter
+  const activeActivities = useMemo(() => {
+    if (!activeSummary) return [];
+    if (selectedDayFilter === 'ALL') {
+      return activeSummary.allActivities || [];
+    }
+    return activeSummary.byDate?.[selectedDayFilter]?.activities || [];
+  }, [activeSummary, selectedDayFilter]);
 
   const activePoints = useMemo(() => {
-    if (!tripSummary) return [];
+    if (!activeSummary) return [];
     if (selectedDayFilter === 'ALL') {
-      return tripSummary.allPoints || [];
+      return activeSummary.allPoints || [];
     }
-    return tripSummary.byDate?.[selectedDayFilter]?.points || [];
-  }, [tripSummary, selectedDayFilter]);
+    return activeSummary.byDate?.[selectedDayFilter]?.points || [];
+  }, [activeSummary, selectedDayFilter]);
 
   // Handle File upload
   const handleFileUpload = (e) => {
@@ -215,6 +230,12 @@ export default function TimelineVisualizer() {
           return;
         }
         setSelectedDayFilter('ALL');
+        setSelectedRange(null);
+        setFilterMode('ALL');
+        if (summary.dateList && summary.dateList.length > 0) {
+          setRangeStartSelect(summary.dateList[0]);
+          setRangeEndSelect(summary.dateList[summary.dateList.length - 1]);
+        }
         setTimelineData(parsed);
         setTripSummary(summary);
       } catch (err) {
@@ -229,11 +250,94 @@ export default function TimelineVisualizer() {
     e.target.value = '';
   };
 
+  const handleModeChange = (newMode) => {
+    setFilterMode(newMode);
+    if (newMode === 'ALL') {
+      setSelectedRange(null);
+      setSelectedDayFilter('ALL');
+      setProgress(0);
+      setIsPlaying(false);
+    } else if (newMode === 'SINGLE') {
+      setSelectedRange(null);
+      if (selectedDayFilter === 'ALL' && tripSummary?.dateList?.length > 0) {
+        setSelectedDayFilter(tripSummary.dateList[0]);
+      }
+      setProgress(0);
+      setIsPlaying(false);
+    } else if (newMode === 'RANGE') {
+      setSelectedDayFilter('ALL');
+      const start = rangeStartSelect || tripSummary?.dateList?.[0] || '';
+      const end = rangeEndSelect || tripSummary?.dateList?.[tripSummary.dateList.length - 1] || '';
+      if (start && end) {
+        setRangeStartSelect(start);
+        setRangeEndSelect(end);
+        setSelectedRange({ start, end });
+      }
+      setProgress(0);
+      setIsPlaying(false);
+    }
+  };
+
+  const handleApplyRange = () => {
+    if (!rangeStartSelect || !rangeEndSelect) return;
+    const start = rangeStartSelect < rangeEndSelect ? rangeStartSelect : rangeEndSelect;
+    const end = rangeStartSelect < rangeEndSelect ? rangeEndSelect : rangeStartSelect;
+    setSelectedRange({ start, end });
+    setSelectedDayFilter('ALL');
+    setFilterMode('RANGE');
+    setProgress(0);
+    setIsPlaying(false);
+  };
+
   const handleDayFilterChange = (e) => {
     const newFilter = e.target.value;
     setSelectedDayFilter(newFilter);
+    if (newFilter === 'ALL') {
+      setFilterMode('ALL');
+      setSelectedRange(null);
+    } else {
+      setFilterMode('SINGLE');
+      setSelectedRange(null);
+    }
     setProgress(0);
     setIsPlaying(false);
+  };
+
+  const handleRangeSelectFromCalendar = (range) => {
+    setSelectedRange(range);
+    if (range) {
+      setFilterMode('RANGE');
+      setSelectedDayFilter('ALL');
+      setRangeStartSelect(range.start);
+      setRangeEndSelect(range.end);
+    }
+    setProgress(0);
+    setIsPlaying(false);
+  };
+
+  const handleDaySelectFromCalendar = (dateStr) => {
+    setSelectedDayFilter(dateStr);
+    setSelectedRange(null);
+    setFilterMode('SINGLE');
+    setProgress(0);
+    setIsPlaying(false);
+  };
+
+  const handleResetAll = () => {
+    setSelectedRange(null);
+    setSelectedDayFilter('ALL');
+    setFilterMode('ALL');
+    setProgress(0);
+    setIsPlaying(false);
+  };
+
+  const handleViewRangeMap = () => {
+    if (leafletMapInstance.current && polylineGroupRef.current) {
+      const bounds = polylineGroupRef.current.getBounds();
+      if (bounds.isValid()) {
+        leafletMapInstance.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
+      }
+    }
   };
 
   const toggleItinerary = () => {
@@ -330,7 +434,7 @@ export default function TimelineVisualizer() {
 
     setProgress(0);
     setIsPlaying(false);
-  }, [tripSummary, selectedDayFilter]);
+  }, [tripSummary, selectedRange, selectedDayFilter]);
 
   // Animate marker in real-time along waypoints (smooth highlight playback)
   useEffect(() => {
@@ -705,9 +809,11 @@ export default function TimelineVisualizer() {
 
       const baseFileName = selectedDayFilter !== 'ALL'
         ? `timeline-${selectedDayFilter}`
-        : (tripSummary?.startDate && tripSummary?.endDate
-            ? `timeline-${tripSummary.startDate}_to_${tripSummary.endDate}`
-            : 'timeline-export');
+        : (selectedRange
+            ? `timeline-${selectedRange.start}_to_${selectedRange.end}`
+            : (tripSummary?.startDate && tripSummary?.endDate
+                ? `timeline-${tripSummary.startDate}_to_${tripSummary.endDate}`
+                : 'timeline-export'));
 
       // Process file export
       if (exportFormat === 'gif') {
@@ -845,12 +951,12 @@ export default function TimelineVisualizer() {
     const pt = activePoints[idx];
     const nextPt = idx < activePoints.length - 1 ? activePoints[idx + 1] : null;
 
-    return getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selectedDayFilter);
-  }, [activePoints, progress, tripSummary, selectedDayFilter]);
+    return getPlaybackPointInfo(pt, nextPt, remainder, activeSummary || tripSummary, selectedDayFilter);
+  }, [activePoints, progress, activeSummary, tripSummary, selectedDayFilter]);
 
   const currentFilterDistanceMeters = useMemo(() => {
     if (selectedDayFilter === 'ALL') {
-      return tripSummary?.totalDistanceMeters || 0;
+      return activeSummary?.totalDistanceMeters || 0;
     }
     let dist = 0;
     for (const act of activeActivities) {
@@ -865,14 +971,14 @@ export default function TimelineVisualizer() {
       }
     }
     return dist;
-  }, [tripSummary, selectedDayFilter, activeActivities]);
+  }, [activeSummary, selectedDayFilter, activeActivities]);
 
   const currentFilterModes = useMemo(() => {
     if (selectedDayFilter === 'ALL') {
-      return tripSummary?.usedModes || [];
+      return activeSummary?.usedModes || [];
     }
     return [...new Set(activeActivities.map(a => a.type).filter(Boolean))];
-  }, [tripSummary, selectedDayFilter, activeActivities]);
+  }, [activeSummary, selectedDayFilter, activeActivities]);
 
   return (
     <div className="timeline-container">
@@ -895,34 +1001,122 @@ export default function TimelineVisualizer() {
 
         {tripSummary && (
           <div className="glass-input-card trip-filter-card">
-            <h3>일정 선택</h3>
-            <select
-              value={selectedDayFilter}
-              onChange={handleDayFilterChange}
-              className="timeline-select day-filter-select"
-              aria-label="일정 선택"
-            >
-              <option value="ALL">
-                🌟 전체 일정 요약 ({tripSummary.totalDays}일간)
-              </option>
-              {tripSummary.dateList && tripSummary.dateList.map((d, idx) => (
-                <option key={d} value={d}>
-                  Day {idx + 1} ({d.slice(5).replace('-', '.')})
-                </option>
-              ))}
-            </select>
+            <h3>일정 선택 모드</h3>
+            <div className="filter-mode-button-group">
+              <button
+                type="button"
+                className={`filter-mode-btn ${filterMode === 'ALL' ? 'active' : ''}`}
+                onClick={() => handleModeChange('ALL')}
+              >
+                전체 보기
+              </button>
+              <button
+                type="button"
+                className={`filter-mode-btn ${filterMode === 'SINGLE' ? 'active' : ''}`}
+                onClick={() => handleModeChange('SINGLE')}
+              >
+                단일 Day 선택
+              </button>
+              <button
+                type="button"
+                className={`filter-mode-btn ${filterMode === 'RANGE' ? 'active' : ''}`}
+                onClick={() => handleModeChange('RANGE')}
+              >
+                기간 선택 (각출)
+              </button>
+            </div>
+
+            {filterMode !== 'RANGE' ? (
+              <div className="single-day-picker-box">
+                <select
+                  value={selectedDayFilter}
+                  onChange={handleDayFilterChange}
+                  className="timeline-select day-filter-select"
+                  aria-label="일정 선택"
+                >
+                  <option value="ALL">
+                    🌟 전체 일정 요약 ({tripSummary.totalDays}일간)
+                  </option>
+                  {tripSummary.dateList && tripSummary.dateList.map((d, idx) => (
+                    <option key={d} value={d}>
+                      Day {idx + 1} ({d.slice(5).replace('-', '.')})
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="range-filter-box">
+                <div className="range-select-row">
+                  <div className="range-field">
+                    <label>시작일</label>
+                    <select
+                      value={rangeStartSelect}
+                      onChange={(e) => setRangeStartSelect(e.target.value)}
+                      className="timeline-select range-start-select"
+                      aria-label="시작일 선택"
+                    >
+                      {tripSummary.dateList && tripSummary.dateList.map((d, idx) => (
+                        <option key={d} value={d}>
+                          Day {idx + 1} ({d})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <span className="range-sep">~</span>
+                  <div className="range-field">
+                    <label>종료일</label>
+                    <select
+                      value={rangeEndSelect}
+                      onChange={(e) => setRangeEndSelect(e.target.value)}
+                      className="timeline-select range-end-select"
+                      aria-label="종료일 선택"
+                    >
+                      {tripSummary.dateList && tripSummary.dateList.map((d, idx) => (
+                        <option key={d} value={d}>
+                          Day {idx + 1} ({d})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+                <div className="range-apply-actions">
+                  <button
+                    type="button"
+                    onClick={handleApplyRange}
+                    className="range-apply-btn"
+                  >
+                    기간 적용
+                  </button>
+                  {selectedRange && (
+                    <button
+                      type="button"
+                      onClick={handleResetAll}
+                      className="range-reset-btn"
+                    >
+                      전체 복원
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
         {tripSummary && (
           <div className="glass-input-card trip-summary-card">
-            <h3>{selectedDayFilter === 'ALL' ? '전체 여행 일정 요약' : `Day ${tripSummary.dateList ? tripSummary.dateList.indexOf(selectedDayFilter) + 1 : 1} 일정 요약`}</h3>
+            <h3>
+              {selectedDayFilter === 'ALL'
+                ? (selectedRange ? '선택된 기간 일정 요약' : '전체 여행 일정 요약')
+                : `Day ${activeSummary?.dateList ? activeSummary.dateList.indexOf(selectedDayFilter) + 1 : 1} 일정 요약`}
+            </h3>
             <div className="summary-field">
               <span className="summary-title">🗓️ {selectedDayFilter === 'ALL' ? '여행 기간:' : '선택 날짜:'}</span>
               <span className="summary-content">
                 {selectedDayFilter === 'ALL'
-                  ? `${tripSummary.startDate} ~ ${tripSummary.endDate} (총 ${tripSummary.totalDays}일간)`
-                  : `${selectedDayFilter} (Day ${tripSummary.dateList ? tripSummary.dateList.indexOf(selectedDayFilter) + 1 : 1})`}
+                  ? (selectedRange
+                      ? `${selectedRange.start} ~ ${selectedRange.end} (선택 ${activeSummary?.totalDays || 0}일간)`
+                      : `${tripSummary.startDate} ~ ${tripSummary.endDate} (총 ${tripSummary.totalDays}일간)`)
+                  : `${selectedDayFilter} (Day ${activeSummary?.dateList ? activeSummary.dateList.indexOf(selectedDayFilter) + 1 : 1})`}
               </span>
             </div>
             <div className="summary-field">
@@ -1119,11 +1313,23 @@ export default function TimelineVisualizer() {
       {isItineraryOpen && (
         <aside className="timeline-itinerary-panel" data-testid="timeline-itinerary-panel">
           <div className="itinerary-panel-header">
-            <div className="itinerary-title-box">
-              <h3>🗓️ 여행 여정 일정표</h3>
-              {tripSummary?.itineraryList?.length > 0 && (
-                <span className="itinerary-count-badge">총 {tripSummary.itineraryList.length}일</span>
-              )}
+            <div className="panel-tab-switcher">
+              <button
+                type="button"
+                className={`panel-tab-btn ${rightPanelTab === 'calendar' ? 'active' : ''}`}
+                onClick={() => setRightPanelTab('calendar')}
+                aria-label="달력 보기"
+              >
+                📅 달력 보기
+              </button>
+              <button
+                type="button"
+                className={`panel-tab-btn ${rightPanelTab === 'list' ? 'active' : ''}`}
+                onClick={() => setRightPanelTab('list')}
+                aria-label="일정 목록"
+              >
+                📋 일정 목록
+              </button>
             </div>
             <button
               type="button"
@@ -1136,70 +1342,108 @@ export default function TimelineVisualizer() {
             </button>
           </div>
 
-          {tripSummary && (
-            <div className="itinerary-all-btn-wrapper">
-              <button
-                type="button"
-                className={`itinerary-all-btn ${selectedDayFilter === 'ALL' ? 'active' : ''}`}
-                onClick={() => {
-                  setSelectedDayFilter('ALL');
-                  setProgress(0);
-                  setIsPlaying(false);
-                }}
-              >
-                🌟 전체 일정 보기 ({tripSummary.totalDays}일간)
-              </button>
+          {rightPanelTab === 'calendar' ? (
+            <div className="calendar-panel-content">
+              {tripSummary ? (
+                <MonthlyCalendar
+                  tripSummary={tripSummary}
+                  selectedRange={selectedRange}
+                  onRangeSelect={handleRangeSelectFromCalendar}
+                  selectedDay={selectedDayFilter}
+                  onDaySelect={handleDaySelectFromCalendar}
+                  currentPlayingDate={currentPointData?.date || currentPointData?.dateKey || null}
+                  onResetAll={handleResetAll}
+                  onViewRangeMap={handleViewRangeMap}
+                />
+              ) : (
+                <div className="itinerary-empty-guide">
+                  <Calendar size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                  <p>타임라인 JSON 파일을 등록하시면<br />월별 달력과 기간 선택 기능이 활성화됩니다.</p>
+                </div>
+              )}
+            </div>
+          ) : (
+            <div className="itinerary-list-panel-content">
+              <div className="itinerary-title-box">
+                <h3>🗓️ 여행 여정 일정표</h3>
+                {activeSummary?.itineraryList?.length > 0 && (
+                  <span className="itinerary-count-badge">
+                    {selectedRange ? `선택 기간 ${activeSummary.itineraryList.length}일` : `총 ${activeSummary.itineraryList.length}일`}
+                  </span>
+                )}
+              </div>
+
+              {tripSummary && (
+                <div className="itinerary-all-btn-wrapper">
+                  <button
+                    type="button"
+                    className={`itinerary-all-btn ${selectedDayFilter === 'ALL' && !selectedRange ? 'active' : ''}`}
+                    onClick={handleResetAll}
+                  >
+                    🌟 전체 일정 보기 ({tripSummary.totalDays}일간)
+                  </button>
+                </div>
+              )}
+
+              {selectedRange && (
+                <div className="active-range-pill-banner">
+                  <span>선택 기간: {selectedRange.start} ~ {selectedRange.end}</span>
+                  <button type="button" onClick={handleResetAll} className="active-range-reset-btn">
+                    전체 복원
+                  </button>
+                </div>
+              )}
+
+              <div className="itinerary-cards-container">
+                {activeSummary?.itineraryList && activeSummary.itineraryList.length > 0 ? (
+                  activeSummary.itineraryList.map((item) => {
+                    const isSelected = selectedDayFilter === item.dateStr;
+                    const isCurrentDay = currentPointData?.date === item.dateStr || currentPointData?.dateKey === item.dateStr;
+                    const cardClasses = [
+                      'itinerary-card',
+                      isSelected ? 'selected' : '',
+                      isCurrentDay ? 'active-playing-card' : ''
+                    ].filter(Boolean).join(' ');
+
+                    return (
+                      <div
+                        key={item.dateStr}
+                        className={cardClasses}
+                        onClick={() => handleCardClick(item.dateStr)}
+                        role="button"
+                        tabIndex={0}
+                        data-testid={`itinerary-card-${item.dayNum}`}
+                      >
+                        <div className="itinerary-card-header">
+                          <span className="itinerary-day-badge">Day {item.dayNum}</span>
+                          <span className="itinerary-card-date">{item.displayDate}</span>
+                        </div>
+                        <div className="itinerary-card-places">
+                          <span className="places-pin">📍</span>
+                          <span className="places-text">{item.placesSummary}</span>
+                        </div>
+                        <div className="itinerary-card-footer">
+                          <span className="itinerary-distance">📏 {item.distanceKm} km</span>
+                          <div className="itinerary-modes">
+                            {item.modes && item.modes.map((mode, mIdx) => (
+                              <span key={mIdx} className="itinerary-mode-tag">
+                                {mode}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })
+                ) : (
+                  <div className="itinerary-empty-guide">
+                    <Calendar size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                    <p>선택된 기간에 해당하는 여정이 없습니다.</p>
+                  </div>
+                )}
+              </div>
             </div>
           )}
-
-          <div className="itinerary-cards-container">
-            {tripSummary?.itineraryList && tripSummary.itineraryList.length > 0 ? (
-              tripSummary.itineraryList.map((item) => {
-                const isSelected = selectedDayFilter === item.dateStr;
-                const isCurrentDay = currentPointData?.date === item.dateStr || currentPointData?.dateKey === item.dateStr;
-                const cardClasses = [
-                  'itinerary-card',
-                  isSelected ? 'selected' : '',
-                  isCurrentDay ? 'active-playing-card' : ''
-                ].filter(Boolean).join(' ');
-
-                return (
-                  <div
-                    key={item.dateStr}
-                    className={cardClasses}
-                    onClick={() => handleCardClick(item.dateStr)}
-                    role="button"
-                    tabIndex={0}
-                    data-testid={`itinerary-card-${item.dayNum}`}
-                  >
-                    <div className="itinerary-card-header">
-                      <span className="itinerary-day-badge">Day {item.dayNum}</span>
-                      <span className="itinerary-card-date">{item.displayDate}</span>
-                    </div>
-                    <div className="itinerary-card-places">
-                      <span className="places-pin">📍</span>
-                      <span className="places-text">{item.placesSummary}</span>
-                    </div>
-                    <div className="itinerary-card-footer">
-                      <span className="itinerary-distance">📏 {item.distanceKm} km</span>
-                      <div className="itinerary-modes">
-                        {item.modes && item.modes.map((mode, mIdx) => (
-                          <span key={mIdx} className="itinerary-mode-tag">
-                            {mode}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            ) : (
-              <div className="itinerary-empty-guide">
-                <Calendar size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
-                <p>타임라인 JSON 파일을 등록하시면<br />일자별 상세 여정이 여기에 표시됩니다.</p>
-              </div>
-            )}
-          </div>
         </aside>
       )}
     </div>

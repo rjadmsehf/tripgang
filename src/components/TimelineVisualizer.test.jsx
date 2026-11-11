@@ -110,9 +110,14 @@ describe('TimelineVisualizer Component', () => {
     fireEvent.change(speedSelect, { target: { value: '0.05' } });
     expect(speedSelect.value).toBe('0.05');
 
-    // Verify right itinerary panel is rendered with daily itinerary card
+    // Verify right itinerary panel is rendered with MonthlyCalendar by default
     const itineraryPanel = container.querySelector('.timeline-itinerary-panel');
     expect(itineraryPanel).toBeDefined();
+    expect(screen.getByTestId('monthly-calendar')).toBeDefined();
+
+    // Switch to itinerary card list tab
+    const listTabBtn = screen.getByRole('button', { name: /일정 목록/ });
+    fireEvent.click(listTabBtn);
     expect(screen.getByText('🗓️ 여행 여정 일정표')).toBeDefined();
 
     const day1Card = container.querySelector('[data-testid="itinerary-card-1"]');
@@ -260,6 +265,10 @@ describe('TimelineVisualizer Component', () => {
     const file = new File([JSON.stringify(mockData)], 'multi-day.json', { type: 'application/json' });
     fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [file] } });
 
+    // Switch to itinerary card list tab
+    const listTabBtn = await screen.findByRole('button', { name: /일정 목록/ });
+    fireEvent.click(listTabBtn);
+
     // Wait for cards to render
     const day1Card = await screen.findByTestId('itinerary-card-1');
     const day2Card = screen.getByTestId('itinerary-card-2');
@@ -304,5 +313,143 @@ describe('TimelineVisualizer Component', () => {
     // Click floating expand button to reopen
     fireEvent.click(floatingExpandBtn);
     expect(container.querySelector('.timeline-itinerary-panel')).toBeDefined();
+  });
+
+  it('supports selecting range via MonthlyCalendar and synchronizes with active summary', async () => {
+    const { container } = render(<TimelineVisualizer />);
+
+    const mockData = {
+      semanticSegments: [
+        {
+          startTime: '2026-08-24T09:00:00.000Z',
+          endTime: '2026-08-24T10:00:00.000Z',
+          activityType: 'WALKING',
+          timelinePath: [
+            { point: 'geo:37.5665,126.9780', time: '2026-08-24T09:00:00.000Z' },
+            { point: 'geo:37.5700,126.9800', time: '2026-08-24T10:00:00.000Z' }
+          ]
+        },
+        {
+          startTime: '2026-08-25T09:00:00.000Z',
+          endTime: '2026-08-25T11:00:00.000Z',
+          activityType: 'IN_PASSENGER_VEHICLE',
+          timelinePath: [
+            { point: 'geo:37.5700,126.9800', time: '2026-08-25T09:00:00.000Z' },
+            { point: 'geo:37.6000,127.0000', time: '2026-08-25T11:00:00.000Z' }
+          ]
+        },
+        {
+          startTime: '2026-08-26T09:00:00.000Z',
+          endTime: '2026-08-26T11:00:00.000Z',
+          activityType: 'IN_PASSENGER_VEHICLE',
+          timelinePath: [
+            { point: 'geo:37.6000,127.0000', time: '2026-08-26T09:00:00.000Z' },
+            { point: 'geo:37.6200,127.0200', time: '2026-08-26T11:00:00.000Z' }
+          ]
+        }
+      ]
+    };
+
+    const file = new File([JSON.stringify(mockData)], '3days.json', { type: 'application/json' });
+    fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [file] } });
+
+    // Calendar is displayed
+    const cal = await screen.findByTestId('monthly-calendar');
+    expect(cal).toBeDefined();
+
+    // Select range on calendar: 2026-08-24 to 2026-08-25
+    const day24 = screen.getByTestId('calendar-day-2026-08-24');
+    const day25 = screen.getByTestId('calendar-day-2026-08-25');
+    fireEvent.click(day24);
+    fireEvent.click(day25);
+
+    // Range summary card on calendar should appear
+    const rangeSummaryCard = await screen.findByTestId('range-summary-card');
+    expect(rangeSummaryCard).toBeDefined();
+    expect(rangeSummaryCard.textContent).toContain('2026.08.24 ~ 2026.08.25');
+
+    // Sidebar summary should also reflect selected range
+    const summaryCard = container.querySelector('.trip-summary-card');
+    expect(summaryCard.textContent).toContain('선택된 기간 일정 요약');
+    expect(summaryCard.textContent).toContain('2026-08-24 ~ 2026-08-25');
+
+    // Switch to itinerary card list tab -> should show filtered 2 days
+    const listTabBtn = screen.getByRole('button', { name: /일정 목록/ });
+    fireEvent.click(listTabBtn);
+
+    expect(screen.getByTestId('itinerary-card-1')).toBeDefined();
+    expect(screen.getByTestId('itinerary-card-2')).toBeDefined();
+    expect(screen.queryByTestId('itinerary-card-3')).toBeNull();
+
+    // Restore full view
+    const restoreBtn = container.querySelector('.active-range-reset-btn');
+    fireEvent.click(restoreBtn);
+
+    // After restore, all 3 cards should be present
+    expect(screen.getByTestId('itinerary-card-1')).toBeDefined();
+    expect(screen.getByTestId('itinerary-card-2')).toBeDefined();
+    expect(screen.getByTestId('itinerary-card-3')).toBeDefined();
+  });
+
+  it('supports selecting range via left sidebar range dropdowns and applying it', async () => {
+    const { container } = render(<TimelineVisualizer />);
+
+    const mockData = {
+      semanticSegments: [
+        {
+          startTime: '2026-08-24T09:00:00.000Z',
+          endTime: '2026-08-24T10:00:00.000Z',
+          timelinePath: [
+            { point: 'geo:37.5665,126.9780', time: '2026-08-24T09:00:00.000Z' }
+          ]
+        },
+        {
+          startTime: '2026-08-25T09:00:00.000Z',
+          endTime: '2026-08-25T11:00:00.000Z',
+          timelinePath: [
+            { point: 'geo:37.5700,126.9800', time: '2026-08-25T09:00:00.000Z' }
+          ]
+        },
+        {
+          startTime: '2026-08-26T09:00:00.000Z',
+          endTime: '2026-08-26T11:00:00.000Z',
+          timelinePath: [
+            { point: 'geo:37.6000,127.0000', time: '2026-08-26T09:00:00.000Z' }
+          ]
+        }
+      ]
+    };
+
+    const file = new File([JSON.stringify(mockData)], '3days.json', { type: 'application/json' });
+    fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [file] } });
+
+    await screen.findByTestId('monthly-calendar');
+
+    // Click "기간 선택 (각출)" in sidebar
+    const rangeModeBtn = screen.getByRole('button', { name: /기간 선택/ });
+    fireEvent.click(rangeModeBtn);
+
+    // Select start: 2026-08-25, end: 2026-08-26
+    const startSelect = container.querySelector('.range-start-select');
+    const endSelect = container.querySelector('.range-end-select');
+    expect(startSelect).toBeDefined();
+    expect(endSelect).toBeDefined();
+
+    fireEvent.change(startSelect, { target: { value: '2026-08-25' } });
+    fireEvent.change(endSelect, { target: { value: '2026-08-26' } });
+
+    // Click "기간 적용"
+    const applyBtn = screen.getByRole('button', { name: '기간 적용' });
+    fireEvent.click(applyBtn);
+
+    // Switch to itinerary card list
+    const listTabBtn = screen.getByRole('button', { name: /일정 목록/ });
+    fireEvent.click(listTabBtn);
+
+    // Day 1 (2026-08-24) should not be in the filtered list
+    expect(screen.queryByText(/8월 24일/)).toBeNull();
+    // 25 and 26 should be present
+    expect(screen.getByText(/8월 25일/)).toBeDefined();
+    expect(screen.getByText(/8월 26일/)).toBeDefined();
   });
 });

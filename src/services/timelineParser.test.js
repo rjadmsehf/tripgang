@@ -592,6 +592,11 @@ describe('timelineParser', () => {
       expect(filtered.itineraryList[1].dateStr).toBe('2024-05-03');
       expect(filtered.startDate).toBe('2024-05-02');
       expect(filtered.endDate).toBe('2024-05-03');
+
+      // Test normalized order when startDate > endDate
+      const reversed = filterSummaryByRange(mockSummary, '2024-05-03', '2024-05-02');
+      expect(reversed.dateList).toEqual(['2024-05-02', '2024-05-03']);
+      expect(reversed.totalDays).toBe(2);
     });
 
     it('filterSummaryByRange should handle edge cases like null summary or empty range', () => {

@@ -621,10 +621,16 @@ export function filterSummaryByRange(tripSummary, startDate, endDate) {
     return defaultSummary;
   }
 
+  let start = startDate;
+  let end = endDate;
+  if (start && end && start > end) {
+    [start, end] = [end, start];
+  }
+
   const allDates = Array.isArray(tripSummary.dateList) ? tripSummary.dateList : [];
   const filteredDates = allDates.filter(d => {
-    if (startDate && d < startDate) return false;
-    if (endDate && d > endDate) return false;
+    if (start && d < start) return false;
+    if (end && d > end) return false;
     return true;
   });
 
@@ -684,8 +690,8 @@ export function filterSummaryByRange(tripSummary, startDate, endDate) {
 
   const filteredItinerary = (tripSummary.itineraryList || [])
     .filter(item => {
-      if (startDate && item.dateStr < startDate) return false;
-      if (endDate && item.dateStr > endDate) return false;
+      if (start && item.dateStr < start) return false;
+      if (end && item.dateStr > end) return false;
       return true;
     })
     .map((item, idx) => ({
