@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import L from 'leaflet';
-import { Play, Pause, RotateCcw, Download, Upload, Eye } from 'lucide-react';
+import { Play, Pause, RotateCcw, Download, Upload, Eye, PanelRightClose, PanelRightOpen, Calendar } from 'lucide-react';
 import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing } from '../services/timelineParser';
 import './TimelineVisualizer.css';
 import gifshot from 'gifshot';
@@ -48,6 +48,8 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
       mmDd: '--.--',
       dayBadge: 'Day 1 · --.--',
       dateStr: '--.--',
+      dateKey: null,
+      date: null,
       timeStr: '--:--',
       emoji: '📍',
       label: '대기',
@@ -69,6 +71,7 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
   let dayNum = 1;
   let mmDd = '--.--';
   let timeStr = '--:--';
+  let dateKey = null;
 
   if (timeVal != null) {
     const d = new Date(timeVal);
@@ -78,7 +81,7 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
       const dd = String(d.getDate()).padStart(2, '0');
       const hh = String(d.getHours()).padStart(2, '0');
       const min = String(d.getMinutes()).padStart(2, '0');
-      const dateKey = `${yyyy}-${mm}-${dd}`;
+      dateKey = `${yyyy}-${mm}-${dd}`;
       mmDd = `${mm}.${dd}`;
       timeStr = `${hh}:${min}`;
 
@@ -109,6 +112,13 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
     mmDd = selectedDayFilter.slice(5).replace('-', '.');
   }
 
+  if (!dateKey && selectedDayFilter && selectedDayFilter !== 'ALL') {
+    dateKey = selectedDayFilter;
+  }
+  if (!dateKey && tripSummary?.dateList && tripSummary.dateList.length > 0) {
+    dateKey = tripSummary.dateList[dayNum - 1] || tripSummary.dateList[0];
+  }
+
   const dayBadge = `Day ${dayNum} · ${mmDd}`;
   const fullText = `${dayBadge} · ${emoji} ${label}`;
 
@@ -117,6 +127,8 @@ export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selecte
     mmDd,
     dayBadge,
     dateStr: mmDd,
+    dateKey,
+    date: dateKey,
     timeStr,
     emoji,
     label,
@@ -134,6 +146,7 @@ export default function TimelineVisualizer() {
   const [progress, setProgress] = useState(0); // 0 to 1
   const [speedMultiplier, setSpeedMultiplier] = useState(1);
   const [cameraMode, setCameraMode] = useState('fit'); // 'fit' or 'follow'
+  const [isItineraryOpen, setIsItineraryOpen] = useState(true);
   
   // Export Settings
   const [exportFormat, setExportFormat] = useState('gif'); // 'gif' or 'mp4'
@@ -200,6 +213,22 @@ export default function TimelineVisualizer() {
   const handleDayFilterChange = (e) => {
     const newFilter = e.target.value;
     setSelectedDayFilter(newFilter);
+    setProgress(0);
+    setIsPlaying(false);
+  };
+
+  const toggleItinerary = () => {
+    setIsItineraryOpen(prev => {
+      const next = !prev;
+      setTimeout(() => {
+        leafletMapInstance.current?.invalidateSize();
+      }, 200);
+      return next;
+    });
+  };
+
+  const handleCardClick = (dateStr) => {
+    setSelectedDayFilter(dateStr);
     setProgress(0);
     setIsPlaying(false);
   };
@@ -943,6 +972,19 @@ export default function TimelineVisualizer() {
       <main className="timeline-map-area">
         <div ref={mapRef} className="map-canvas-container"></div>
 
+        {!isItineraryOpen && (
+          <button
+            type="button"
+            className="itinerary-expand-floating-btn"
+            onClick={toggleItinerary}
+            title="일정표 펼치기"
+            aria-label="일정표 펼치기"
+          >
+            <PanelRightOpen size={18} />
+            <span>일정표 보기</span>
+          </button>
+        )}
+
         {activePoints.length === 0 && (
           <div className="map-empty-overlay">
             <div className="map-empty-card">
@@ -1006,13 +1048,26 @@ export default function TimelineVisualizer() {
                   value={speedMultiplier}
                   onChange={(e) => setSpeedMultiplier(Number(e.target.value))}
                   className="timeline-select playback-speed-select"
+                  aria-label="재생 속도"
                 >
+                  <option value={0.05}>0.05x (초슬로우 · 20배 느리게)</option>
+                  <option value={0.1}>0.1x (극슬로우 · 10배 느리게)</option>
                   <option value={0.25}>0.25x (매우 느리게)</option>
                   <option value={0.5}>0.5x (느리게)</option>
                   <option value={1}>1x (보통 · 기본값)</option>
                   <option value={2}>2x (빠르게)</option>
                   <option value={4}>4x (매우 빠르게)</option>
                 </select>
+
+                <button
+                  type="button"
+                  onClick={toggleItinerary}
+                  className={`timeline-btn-toggle-itinerary ${isItineraryOpen ? 'active' : ''}`}
+                  title={isItineraryOpen ? '일정표 접기' : '일정표 보기'}
+                >
+                  <Calendar size={18} />
+                  <span>{isItineraryOpen ? '일정표 접기' : '일정표'}</span>
+                </button>
               </div>
             </div>
 
@@ -1041,6 +1096,93 @@ export default function TimelineVisualizer() {
           </div>
         )}
       </main>
+
+      {isItineraryOpen && (
+        <aside className="timeline-itinerary-panel" data-testid="timeline-itinerary-panel">
+          <div className="itinerary-panel-header">
+            <div className="itinerary-title-box">
+              <h3>🗓️ 여행 여정 일정표</h3>
+              {tripSummary?.itineraryList?.length > 0 && (
+                <span className="itinerary-count-badge">총 {tripSummary.itineraryList.length}일</span>
+              )}
+            </div>
+            <button
+              type="button"
+              className="itinerary-toggle-btn"
+              onClick={toggleItinerary}
+              title="일정표 접기"
+              aria-label="일정표 접기"
+            >
+              <PanelRightClose size={18} />
+            </button>
+          </div>
+
+          {tripSummary && (
+            <div className="itinerary-all-btn-wrapper">
+              <button
+                type="button"
+                className={`itinerary-all-btn ${selectedDayFilter === 'ALL' ? 'active' : ''}`}
+                onClick={() => {
+                  setSelectedDayFilter('ALL');
+                  setProgress(0);
+                  setIsPlaying(false);
+                }}
+              >
+                🌟 전체 일정 보기 ({tripSummary.totalDays}일간)
+              </button>
+            </div>
+          )}
+
+          <div className="itinerary-cards-container">
+            {tripSummary?.itineraryList && tripSummary.itineraryList.length > 0 ? (
+              tripSummary.itineraryList.map((item) => {
+                const isSelected = selectedDayFilter === item.dateStr;
+                const isCurrentDay = currentPointData?.date === item.dateStr || currentPointData?.dateKey === item.dateStr;
+                const cardClasses = [
+                  'itinerary-card',
+                  isSelected ? 'selected' : '',
+                  isCurrentDay ? 'active-playing-card' : ''
+                ].filter(Boolean).join(' ');
+
+                return (
+                  <div
+                    key={item.dateStr}
+                    className={cardClasses}
+                    onClick={() => handleCardClick(item.dateStr)}
+                    role="button"
+                    tabIndex={0}
+                    data-testid={`itinerary-card-${item.dayNum}`}
+                  >
+                    <div className="itinerary-card-header">
+                      <span className="itinerary-day-badge">Day {item.dayNum}</span>
+                      <span className="itinerary-card-date">{item.displayDate}</span>
+                    </div>
+                    <div className="itinerary-card-places">
+                      <span className="places-pin">📍</span>
+                      <span className="places-text">{item.placesSummary}</span>
+                    </div>
+                    <div className="itinerary-card-footer">
+                      <span className="itinerary-distance">📏 {item.distanceKm} km</span>
+                      <div className="itinerary-modes">
+                        {item.modes && item.modes.map((mode, mIdx) => (
+                          <span key={mIdx} className="itinerary-mode-tag">
+                            {mode}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="itinerary-empty-guide">
+                <Calendar size={32} style={{ opacity: 0.4, marginBottom: '0.5rem' }} />
+                <p>타임라인 JSON 파일을 등록하시면<br />일자별 상세 여정이 여기에 표시됩니다.</p>
+              </div>
+            )}
+          </div>
+        </aside>
+      )}
     </div>
   );
 }

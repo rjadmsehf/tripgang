@@ -104,7 +104,24 @@ describe('TimelineVisualizer Component', () => {
     const speedSelect = container.querySelector('.playback-speed-select');
     expect(speedSelect.value).toBe('1');
     const speedOptions = Array.from(speedSelect.querySelectorAll('option')).map(o => o.value);
-    expect(speedOptions).toEqual(['0.25', '0.5', '1', '2', '4']);
+    expect(speedOptions).toEqual(['0.05', '0.1', '0.25', '0.5', '1', '2', '4']);
+
+    // Test selecting ultra-slow speed (0.05x)
+    fireEvent.change(speedSelect, { target: { value: '0.05' } });
+    expect(speedSelect.value).toBe('0.05');
+
+    // Verify right itinerary panel is rendered with daily itinerary card
+    const itineraryPanel = container.querySelector('.timeline-itinerary-panel');
+    expect(itineraryPanel).toBeDefined();
+    expect(screen.getByText('🗓️ 여행 여정 일정표')).toBeDefined();
+
+    const day1Card = container.querySelector('[data-testid="itinerary-card-1"]');
+    expect(day1Card).toBeDefined();
+    expect(day1Card.textContent).toContain('Day 1');
+    expect(day1Card.textContent).toContain('8월 24일');
+    expect(day1Card.textContent).toContain('자동차');
+    expect(day1Card.className).toContain('itinerary-card');
+    expect(day1Card.className).toContain('active-playing-card');
 
     // Verify Play button toggling to "일시정지"
     const playBtn = screen.getByTitle('재생하기');
@@ -179,5 +196,113 @@ describe('TimelineVisualizer Component', () => {
     expect(info.label).toBe('걷기');
     expect(info.fullText).toContain('Day 2');
     expect(info.fullText).toContain('🚶 걷기');
+  });
+
+  it('renders ultra-slow speed options 0.05x and 0.1x correctly', async () => {
+    const { container } = render(<TimelineVisualizer />);
+    // Upload 1 mock segment so playback controls appear
+    const mockData = {
+      semanticSegments: [
+        {
+          startTime: '2026-08-24T10:00:00.000Z',
+          endTime: '2026-08-24T10:30:00.000Z',
+          timelinePath: [
+            { point: 'geo:37.5665,126.9780', time: '2026-08-24T10:00:00.000Z' }
+          ]
+        }
+      ]
+    };
+    const file = new File([JSON.stringify(mockData)], 'timeline.json', { type: 'application/json' });
+    fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [file] } });
+
+    await screen.findByText('재생하기');
+
+    const speedSelect = container.querySelector('.playback-speed-select');
+    expect(speedSelect).toBeDefined();
+
+    const options = Array.from(speedSelect.querySelectorAll('option'));
+    const opt005 = options.find(o => o.value === '0.05');
+    const opt01 = options.find(o => o.value === '0.1');
+
+    expect(opt005).toBeDefined();
+    expect(opt005.textContent).toContain('0.05x (초슬로우 · 20배 느리게)');
+    expect(opt01).toBeDefined();
+    expect(opt01.textContent).toContain('0.1x (극슬로우 · 10배 느리게)');
+  });
+
+  it('supports 3-column wide layout, panel toggle collapse/expand, and card selection', async () => {
+    const { container } = render(<TimelineVisualizer />);
+
+    // Multi-day mock dataset (Day 1 & Day 2)
+    const mockData = {
+      semanticSegments: [
+        {
+          startTime: '2026-08-24T09:00:00.000Z',
+          endTime: '2026-08-24T10:00:00.000Z',
+          activityType: 'WALKING',
+          timelinePath: [
+            { point: 'geo:37.5665,126.9780', time: '2026-08-24T09:00:00.000Z' },
+            { point: 'geo:37.5700,126.9800', time: '2026-08-24T10:00:00.000Z' }
+          ]
+        },
+        {
+          startTime: '2026-08-25T09:00:00.000Z',
+          endTime: '2026-08-25T11:00:00.000Z',
+          activityType: 'IN_PASSENGER_VEHICLE',
+          timelinePath: [
+            { point: 'geo:37.5700,126.9800', time: '2026-08-25T09:00:00.000Z' },
+            { point: 'geo:37.6000,127.0000', time: '2026-08-25T11:00:00.000Z' }
+          ]
+        }
+      ]
+    };
+
+    const file = new File([JSON.stringify(mockData)], 'multi-day.json', { type: 'application/json' });
+    fireEvent.change(container.querySelector('input[type="file"]'), { target: { files: [file] } });
+
+    // Wait for cards to render
+    const day1Card = await screen.findByTestId('itinerary-card-1');
+    const day2Card = screen.getByTestId('itinerary-card-2');
+    expect(day1Card).toBeDefined();
+    expect(day2Card).toBeDefined();
+
+    // Verify 3 columns exist
+    expect(container.querySelector('.timeline-sidebar')).toBeDefined();
+    expect(container.querySelector('.timeline-map-area')).toBeDefined();
+    expect(container.querySelector('.timeline-itinerary-panel')).toBeDefined();
+
+    // Verify card content
+    expect(day1Card.textContent).toContain('Day 1');
+    expect(day1Card.textContent).toContain('8월 24일');
+    expect(day2Card.textContent).toContain('Day 2');
+    expect(day2Card.textContent).toContain('8월 25일');
+
+    // Click Day 2 card -> should select 2026-08-25
+    fireEvent.click(day2Card);
+    expect(day2Card.className).toContain('selected');
+
+    // Verify day selection filter dropdown also synced
+    const dayFilterSelect = container.querySelector('.day-filter-select');
+    expect(dayFilterSelect.value).toBe('2026-08-25');
+
+    // Click "전체 일정 보기" button
+    const allDaysBtn = container.querySelector('.itinerary-all-btn');
+    expect(allDaysBtn).toBeDefined();
+    fireEvent.click(allDaysBtn);
+    expect(dayFilterSelect.value).toBe('ALL');
+
+    // Test collapsing the itinerary panel
+    const collapseBtn = container.querySelector('.itinerary-toggle-btn');
+    expect(collapseBtn).toBeDefined();
+    fireEvent.click(collapseBtn);
+
+    // Right panel should now be closed, floating button visible
+    expect(container.querySelector('.timeline-itinerary-panel')).toBeNull();
+    const floatingExpandBtn = container.querySelector('.itinerary-expand-floating-btn');
+    expect(floatingExpandBtn).toBeDefined();
+
+    // Click floating expand button to reopen
+    fireEvent.click(floatingExpandBtn);
+    expect(container.querySelector('.timeline-itinerary-panel')).toBeDefined();
   });
 });
