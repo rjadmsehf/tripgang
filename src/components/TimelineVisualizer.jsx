@@ -1,20 +1,20 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import L from 'leaflet';
 import { Play, Pause, RotateCcw, Download, Upload, Eye } from 'lucide-react';
 import { parseTimelineJson, getFullPeriodSummary, getHaversineDistance, calculateBearing } from '../services/timelineParser';
 import './TimelineVisualizer.css';
 import gifshot from 'gifshot';
 
-const ACTIVITY_COLORS = {
-  WALKING: '#10b981',      // Emerald Green
+export const ACTIVITY_COLORS = {
+  WALKING: '#2dd4bf',      // Vibrant Mint
   VEHICLE: '#3b82f6',      // Blue
-  MOTORCYCLING: '#f97316', // Orange
-  FLYING: '#8b5cf6',       // Purple
-  CYCLING: '#06b6d4',      // Cyan
+  MOTORCYCLING: '#8b5cf6', // Purple
+  FLYING: '#ec4899',       // Pink
+  CYCLING: '#f59e0b',      // Amber
   STILL: '#6b7280'         // Gray
 };
 
-const ACTIVITY_EMOJIS = {
+export const ACTIVITY_EMOJIS = {
   WALKING: '🚶',
   VEHICLE: '🚗',
   MOTORCYCLING: '🏍️',
@@ -23,7 +23,7 @@ const ACTIVITY_EMOJIS = {
   STILL: '📍'
 };
 
-const ACTIVITY_LABELS = {
+export const ACTIVITY_LABELS = {
   WALKING: '걷기',
   VEHICLE: '자동차',
   MOTORCYCLING: '오토바이',
@@ -32,38 +32,104 @@ const ACTIVITY_LABELS = {
   STILL: '정지'
 };
 
-function getPlaybackIndicatorParts(timestamp, type) {
-  const emoji = ACTIVITY_EMOJIS[type] || '📍';
-  const label = ACTIVITY_LABELS[type] || type || '이동';
-  if (!timestamp) {
-    return { dateStr: '--.--', timeStr: '--:--', emoji, label };
-  }
-  const d = new Date(timestamp);
-  if (isNaN(d.getTime())) {
-    return { dateStr: '--.--', timeStr: '--:--', emoji, label };
-  }
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const dd = String(d.getDate()).padStart(2, '0');
-  const hh = String(d.getHours()).padStart(2, '0');
-  const min = String(d.getMinutes()).padStart(2, '0');
-  return {
-    dateStr: `${mm}.${dd}`,
-    timeStr: `${hh}:${min}`,
-    emoji,
-    label
-  };
+export function checkIsAirplane(pt, nextPt) {
+  if (!pt) return false;
+  if (pt.type === 'FLYING') return true;
+  if (!nextPt) return false;
+  const dist = getHaversineDistance(pt.lat, pt.lng, nextPt.lat, nextPt.lng);
+  const timeDelta = (nextPt.time != null && pt.time != null) ? Math.abs(nextPt.time - pt.time) / 1000 : 0;
+  return dist > 100000 || (timeDelta > 0 && (dist / timeDelta) > 70);
 }
 
-function formatMarkerTooltip(timestamp, type) {
-  const { dateStr, timeStr, emoji, label } = getPlaybackIndicatorParts(timestamp, type);
-  if (dateStr === '--.--') return '';
-  return `${dateStr} ${timeStr} · ${emoji} ${label}`;
+export function getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selectedDayFilter) {
+  if (!pt) {
+    return {
+      dayNum: 1,
+      mmDd: '--.--',
+      dayBadge: 'Day 1 · --.--',
+      dateStr: '--.--',
+      timeStr: '--:--',
+      emoji: '📍',
+      label: '대기',
+      effectiveType: 'STILL',
+      fullText: 'Day 1 · --.-- · 📍 대기'
+    };
+  }
+
+  let timeVal = pt.time;
+  if (remainder > 0 && nextPt && nextPt.time != null && timeVal != null) {
+    timeVal = timeVal + (nextPt.time - timeVal) * remainder;
+  }
+
+  const isAirplane = checkIsAirplane(pt, nextPt);
+  const effectiveType = isAirplane ? 'FLYING' : pt.type;
+  const emoji = ACTIVITY_EMOJIS[effectiveType] || '📍';
+  const label = ACTIVITY_LABELS[effectiveType] || effectiveType || '이동';
+
+  let dayNum = 1;
+  let mmDd = '--.--';
+  let timeStr = '--:--';
+
+  if (timeVal != null) {
+    const d = new Date(timeVal);
+    if (!isNaN(d.getTime())) {
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      const hh = String(d.getHours()).padStart(2, '0');
+      const min = String(d.getMinutes()).padStart(2, '0');
+      const dateKey = `${yyyy}-${mm}-${dd}`;
+      mmDd = `${mm}.${dd}`;
+      timeStr = `${hh}:${min}`;
+
+      if (tripSummary?.dateList && tripSummary.dateList.length > 0) {
+        const idx = tripSummary.dateList.indexOf(dateKey);
+        if (idx >= 0) {
+          dayNum = idx + 1;
+        } else if (dateKey < tripSummary.dateList[0]) {
+          dayNum = 1;
+        } else if (dateKey > tripSummary.dateList[tripSummary.dateList.length - 1]) {
+          dayNum = tripSummary.dateList.length;
+        } else {
+          let closestIdx = 0;
+          for (let i = 0; i < tripSummary.dateList.length; i++) {
+            if (tripSummary.dateList[i] <= dateKey) {
+              closestIdx = i;
+            }
+          }
+          dayNum = closestIdx + 1;
+        }
+      }
+    }
+  }
+
+  if (mmDd === '--.--' && selectedDayFilter && selectedDayFilter !== 'ALL') {
+    const idx = tripSummary?.dateList ? tripSummary.dateList.indexOf(selectedDayFilter) : 0;
+    dayNum = idx >= 0 ? idx + 1 : 1;
+    mmDd = selectedDayFilter.slice(5).replace('-', '.');
+  }
+
+  const dayBadge = `Day ${dayNum} · ${mmDd}`;
+  const fullText = `${dayBadge} · ${emoji} ${label}`;
+
+  return {
+    dayNum,
+    mmDd,
+    dayBadge,
+    dateStr: mmDd,
+    timeStr,
+    emoji,
+    label,
+    effectiveType,
+    fullText
+  };
 }
 
 export default function TimelineVisualizer() {
   const [timelineData, setTimelineData] = useState(null);
   const [tripSummary, setTripSummary] = useState(null);
   const [uploadedFileName, setUploadedFileName] = useState('');
+  const [selectedDayFilter, setSelectedDayFilter] = useState('ALL');
   const [isPlaying, setIsPlaying] = useState(false);
   const [progress, setProgress] = useState(0); // 0 to 1
   const [speedMultiplier, setSpeedMultiplier] = useState(1);
@@ -83,6 +149,23 @@ export default function TimelineVisualizer() {
   const animationFrameRef = useRef(null);
   const lastTimeRef = useRef(null);
 
+  // Filtered Activities & Points based on selectedDayFilter
+  const activeActivities = useMemo(() => {
+    if (!tripSummary) return [];
+    if (selectedDayFilter === 'ALL') {
+      return tripSummary.allActivities || [];
+    }
+    return tripSummary.byDate?.[selectedDayFilter]?.activities || [];
+  }, [tripSummary, selectedDayFilter]);
+
+  const activePoints = useMemo(() => {
+    if (!tripSummary) return [];
+    if (selectedDayFilter === 'ALL') {
+      return tripSummary.allPoints || [];
+    }
+    return tripSummary.byDate?.[selectedDayFilter]?.points || [];
+  }, [tripSummary, selectedDayFilter]);
+
   // Handle File upload
   const handleFileUpload = (e) => {
     const file = e.target.files[0];
@@ -99,6 +182,7 @@ export default function TimelineVisualizer() {
           alert('선택하신 JSON 파일에서 날짜별 이동 기록을 찾지 못했습니다.\n\n지원되는 구글 타임라인 파일 형식:\n1. 모바일 Google Maps 내보내기 (Timeline.json - semanticSegments)\n2. Google Takeout 월별 기록 (*_JANUARY.json 등)\n3. Google Takeout 원시 위치 기록 (Records.json)');
           return;
         }
+        setSelectedDayFilter('ALL');
         setTimelineData(parsed);
         setTripSummary(summary);
       } catch (err) {
@@ -111,6 +195,13 @@ export default function TimelineVisualizer() {
     };
     reader.readAsText(file);
     e.target.value = '';
+  };
+
+  const handleDayFilterChange = (e) => {
+    const newFilter = e.target.value;
+    setSelectedDayFilter(newFilter);
+    setProgress(0);
+    setIsPlaying(false);
   };
 
   // Initialize Leaflet Map
@@ -137,9 +228,20 @@ export default function TimelineVisualizer() {
     };
   }, []);
 
-  const activePoints = tripSummary ? tripSummary.allPoints : [];
+  // Listen to window resize to invalidate map size
+  useEffect(() => {
+    const handleResize = () => {
+      if (leafletMapInstance.current) {
+        leafletMapInstance.current.invalidateSize();
+      }
+    };
+    window.addEventListener('resize', handleResize);
+    return () => {
+      window.removeEventListener('resize', handleResize);
+    };
+  }, []);
 
-  // Draw full-period paths onto polylineGroupRef when tripSummary changes
+  // Draw filtered paths onto polylineGroupRef and adjust fitBounds
   useEffect(() => {
     if (!leafletMapInstance.current || !polylineGroupRef.current) return;
 
@@ -154,14 +256,14 @@ export default function TimelineVisualizer() {
       markerRef.current = null;
     }
 
-    if (!tripSummary || !tripSummary.allActivities || tripSummary.allActivities.length === 0) {
+    if (!activeActivities || activeActivities.length === 0) {
       setProgress(0);
       setIsPlaying(false);
       return;
     }
 
-    // Draw all paths colored by activity type
-    tripSummary.allActivities.forEach(act => {
+    // Draw paths colored by activity type
+    activeActivities.forEach(act => {
       if (act.path && act.path.length > 0) {
         const polyLatLngs = act.path.map(p => [p.lat, p.lng]);
         L.polyline(polyLatLngs, {
@@ -175,14 +277,14 @@ export default function TimelineVisualizer() {
     // Fit map boundary
     const bounds = polylineGroupRef.current.getBounds();
     if (bounds.isValid()) {
-      leafletMapInstance.current.fitBounds(bounds, { padding: [50, 50] });
+      leafletMapInstance.current.fitBounds(bounds, { padding: [50, 50], maxZoom: 16 });
     }
 
     setProgress(0);
     setIsPlaying(false);
-  }, [tripSummary]);
+  }, [tripSummary, selectedDayFilter]);
 
-  // Animate marker in real-time
+  // Animate marker in real-time along waypoints (smooth highlight playback)
   useEffect(() => {
     if (!isPlaying || activePoints.length === 0) {
       if (animationFrameRef.current) {
@@ -204,13 +306,13 @@ export default function TimelineVisualizer() {
 
         let flightFactor = 1.0;
         if (pt) {
-          const isAirplane = pt.type === 'FLYING' || (nextPt && getHaversineDistance(pt.lat, pt.lng, nextPt.lat, nextPt.lng) > 50000);
+          const isAirplane = checkIsAirplane(pt, nextPt);
           if (isAirplane) {
-            flightFactor = 0.4;
+            flightFactor = 0.25; // Scenic slowdown during flights
           }
         }
 
-        const next = prev + (delta / 1000 * speedMultiplier * flightFactor) / 75;
+        const next = prev + (delta / 1000 * speedMultiplier * flightFactor) / 60;
         if (next >= 1) {
           setIsPlaying(false);
           return 1;
@@ -245,21 +347,16 @@ export default function TimelineVisualizer() {
 
     let currentLat = activePoints[index].lat;
     let currentLng = activePoints[index].lng;
-    let currentType = activePoints[index].type;
-    let currentTime = activePoints[index].time;
+    const pt = activePoints[index];
     const nextPt = index < activePoints.length - 1 ? activePoints[index + 1] : null;
 
     if (remainder > 0 && nextPt) {
       currentLat = currentLat + (nextPt.lat - currentLat) * remainder;
       currentLng = currentLng + (nextPt.lng - currentLng) * remainder;
-      if (nextPt.time != null && currentTime != null) {
-        currentTime = currentTime + (nextPt.time - currentTime) * remainder;
-      }
     }
 
-    // Update marker or create if missing
-    const isAirplane = currentType === 'FLYING' || (nextPt && getHaversineDistance(currentLat, currentLng, nextPt.lat, nextPt.lng) > 50000);
-    const effectiveType = isAirplane ? 'FLYING' : currentType;
+    const isAirplane = checkIsAirplane(pt, nextPt);
+    const effectiveType = isAirplane ? 'FLYING' : pt.type;
     const emoji = ACTIVITY_EMOJIS[effectiveType] || '📍';
 
     let markerHtml = '';
@@ -270,17 +367,20 @@ export default function TimelineVisualizer() {
       } else if (index > 0) {
         bearing = calculateBearing(activePoints[index - 1].lat, activePoints[index - 1].lng, currentLat, currentLng);
       }
-      markerHtml = `<div style="font-size: 30px; transform: translate(-14px, -14px) rotate(${bearing - 45}deg); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5)); transform-origin: center center; display: inline-block;">${emoji}</div>`;
+      markerHtml = `<div style="font-size: 36px; transform: translate(-18px, -18px) rotate(${bearing - 45}deg); filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6)); transform-origin: center center; display: inline-block;">✈️</div>`;
     } else {
-      markerHtml = `<div style="font-size: 24px; transform: translate(-10px, -20px); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`;
+      markerHtml = `<div style="font-size: 24px; transform: translate(-12px, -22px); filter: drop-shadow(0 2px 4px rgba(0,0,0,0.5));">${emoji}</div>`;
     }
 
     const customIcon = L.divIcon({
       html: markerHtml,
-      className: 'custom-emoji-icon'
+      className: 'custom-emoji-icon',
+      iconSize: isAirplane ? [36, 36] : [24, 24],
+      iconAnchor: isAirplane ? [18, 18] : [12, 12]
     });
 
-    const tooltipContent = formatMarkerTooltip(currentTime, effectiveType);
+    const pointInfo = getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selectedDayFilter);
+    const tooltipContent = pointInfo.fullText;
     const hasTooltip = Boolean(tooltipContent && tooltipContent.trim());
 
     if (!markerRef.current) {
@@ -320,7 +420,7 @@ export default function TimelineVisualizer() {
     if (cameraMode === 'follow') {
       leafletMapInstance.current.panTo([currentLat, currentLng]);
     }
-  }, [progress, cameraMode, activePoints]);
+  }, [progress, cameraMode, activePoints, tripSummary, selectedDayFilter]);
 
   // Canvas Frame Rendering and Encoder Pipeline
   const runExport = async () => {
@@ -379,10 +479,10 @@ export default function TimelineVisualizer() {
       const loadTile = (x, y, z) => {
         return new Promise((resolve) => {
           const img = new Image();
-          img.crossOrigin = 'anonymous'; // CRITICAL: Avoid canvas tainting
+          img.crossOrigin = 'anonymous'; // Avoid canvas tainting
           img.src = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
           img.onload = () => resolve(img);
-          img.onerror = () => resolve(null); // Continue even if tile fails
+          img.onerror = () => resolve(null);
         });
       };
 
@@ -391,7 +491,6 @@ export default function TimelineVisualizer() {
       const centerTileX = Math.floor(lngToX(centerLng, zoom) / 256);
       const centerTileY = Math.floor(latToY(centerLat, zoom) / 256);
       
-      // We fetch a 5x5 grid around the center
       const promises = [];
       const tilesToFetch = [];
       for (let dx = -3; dx <= 3; dx++) {
@@ -428,16 +527,12 @@ export default function TimelineVisualizer() {
 
         let currentLat = activePoints[index].lat;
         let currentLng = activePoints[index].lng;
-        let currentType = activePoints[index].type;
-        let currentTime = activePoints[index].time;
+        const pt = activePoints[index];
         const nextPt = index < activePoints.length - 1 ? activePoints[index + 1] : null;
 
         if (remainder > 0 && nextPt) {
           currentLat = currentLat + (nextPt.lat - currentLat) * remainder;
           currentLng = currentLng + (nextPt.lng - currentLng) * remainder;
-          if (nextPt.time != null && currentTime != null) {
-            currentTime = currentTime + (nextPt.time - currentTime) * remainder;
-          }
         }
 
         if (cameraMode === 'follow') {
@@ -476,11 +571,11 @@ export default function TimelineVisualizer() {
         let lastScreenY = null;
 
         for (let j = 0; j <= index; j++) {
-          const pt = activePoints[j];
-          const screenX = screenCenterX + (lngToX(pt.lng, zoom) - mapCenterPixelX);
-          const screenY = screenCenterY + (latToY(pt.lat, zoom) - mapCenterPixelY);
+          const p = activePoints[j];
+          const screenX = screenCenterX + (lngToX(p.lng, zoom) - mapCenterPixelX);
+          const screenY = screenCenterY + (latToY(p.lat, zoom) - mapCenterPixelY);
 
-          ctx.strokeStyle = ACTIVITY_COLORS[pt.type] || '#3b82f6';
+          ctx.strokeStyle = ACTIVITY_COLORS[p.type] || '#3b82f6';
           if (lastScreenX !== null && lastScreenY !== null) {
             ctx.beginPath();
             ctx.moveTo(lastScreenX, lastScreenY);
@@ -495,7 +590,7 @@ export default function TimelineVisualizer() {
         if (index < activePoints.length - 1) {
           const screenX = screenCenterX + (lngToX(currentLng, zoom) - mapCenterPixelX);
           const screenY = screenCenterY + (latToY(currentLat, zoom) - mapCenterPixelY);
-          ctx.strokeStyle = ACTIVITY_COLORS[currentType] || '#3b82f6';
+          ctx.strokeStyle = ACTIVITY_COLORS[pt.type] || '#3b82f6';
           if (lastScreenX !== null && lastScreenY !== null) {
             ctx.beginPath();
             ctx.moveTo(lastScreenX, lastScreenY);
@@ -508,8 +603,8 @@ export default function TimelineVisualizer() {
         const markerX = screenCenterX + (lngToX(currentLng, zoom) - mapCenterPixelX);
         const markerY = screenCenterY + (latToY(currentLat, zoom) - mapCenterPixelY);
         
-        const isAirplane = currentType === 'FLYING' || (nextPt && getHaversineDistance(currentLat, currentLng, nextPt.lat, nextPt.lng) > 50000);
-        const effectiveType = isAirplane ? 'FLYING' : currentType;
+        const isAirplane = checkIsAirplane(pt, nextPt);
+        const effectiveType = isAirplane ? 'FLYING' : pt.type;
         const emoji = ACTIVITY_EMOJIS[effectiveType] || '📍';
 
         ctx.save();
@@ -522,7 +617,7 @@ export default function TimelineVisualizer() {
             bearing = calculateBearing(activePoints[index - 1].lat, activePoints[index - 1].lng, currentLat, currentLng);
           }
           ctx.rotate(((bearing - 45) * Math.PI) / 180);
-          ctx.font = '32px sans-serif';
+          ctx.font = '36px sans-serif';
         } else {
           ctx.font = '28px sans-serif';
         }
@@ -532,11 +627,12 @@ export default function TimelineVisualizer() {
         ctx.restore();
 
         // Overlay time text with date and mode
-        const overlayText = formatMarkerTooltip(currentTime, effectiveType);
+        const pointInfo = getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selectedDayFilter);
+        const overlayText = pointInfo.fullText;
         if (overlayText && overlayText.trim()) {
           ctx.font = 'bold 15px sans-serif';
           const textMetrics = ctx.measureText(overlayText);
-          const boxWidth = Math.max(160, textMetrics.width + 24);
+          const boxWidth = Math.max(180, textMetrics.width + 24);
 
           ctx.fillStyle = 'rgba(24, 24, 27, 0.85)';
           ctx.fillRect(10, 10, boxWidth, 38);
@@ -554,15 +650,16 @@ export default function TimelineVisualizer() {
         const dataUrl = canvas.toDataURL('image/png');
         frames.push(dataUrl);
         setExportFrameImg(dataUrl);
-        setExportProgress((frameIdx + 1) / totalFrames * 0.7); // 70% progress for framing
+        setExportProgress((frameIdx + 1) / totalFrames * 0.7);
         
-        // Throttle rendering yield to keep browser UI alive
         await new Promise(r => setTimeout(r, 5));
       }
 
-      const baseFileName = tripSummary?.startDate && tripSummary?.endDate
-        ? `timeline-${tripSummary.startDate}_to_${tripSummary.endDate}`
-        : 'timeline-export';
+      const baseFileName = selectedDayFilter !== 'ALL'
+        ? `timeline-${selectedDayFilter}`
+        : (tripSummary?.startDate && tripSummary?.endDate
+            ? `timeline-${tripSummary.startDate}_to_${tripSummary.endDate}`
+            : 'timeline-export');
 
       // Process file export
       if (exportFormat === 'gif') {
@@ -591,7 +688,6 @@ export default function TimelineVisualizer() {
           });
         });
       } else {
-        // Detect native MP4 support or fallback to WebM
         let mimeType = 'video/webm';
         let extension = 'webm';
 
@@ -643,7 +739,6 @@ export default function TimelineVisualizer() {
 
             mediaRecorder.start();
 
-            // Feed frames to stream again
             const playCanvasStream = async () => {
               try {
                 const tempImg = new Image();
@@ -652,7 +747,7 @@ export default function TimelineVisualizer() {
                     tempImg.src = frames[i];
                     tempImg.onload = () => {
                       ctx.drawImage(tempImg, 0, 0);
-                      setExportProgress(0.7 + (i / frames.length) * 0.3); // 70-100% progress
+                      setExportProgress(0.7 + (i / frames.length) * 0.3);
                       resolveImg();
                     };
                     tempImg.onerror = rejectImg;
@@ -682,9 +777,19 @@ export default function TimelineVisualizer() {
     }
   };
 
-  const currentPointData = (() => {
+  const currentPointData = useMemo(() => {
     if (activePoints.length === 0) {
-      return { dateStr: '--.--', timeStr: '--:--', emoji: '📍', label: '대기' };
+      return {
+        dayNum: 1,
+        mmDd: '--.--',
+        dayBadge: 'Day 1 · --.--',
+        dateStr: '--.--',
+        timeStr: '--:--',
+        emoji: '📍',
+        label: '대기',
+        effectiveType: 'STILL',
+        fullText: 'Day 1 · --.-- · 📍 대기'
+      };
     }
     const totalIdx = (activePoints.length - 1) * progress;
     const idx = Math.min(Math.floor(totalIdx), activePoints.length - 1);
@@ -692,19 +797,34 @@ export default function TimelineVisualizer() {
     const pt = activePoints[idx];
     const nextPt = idx < activePoints.length - 1 ? activePoints[idx + 1] : null;
 
-    let timeVal = pt?.time;
-    if (remainder > 0 && nextPt && nextPt.time != null && timeVal != null) {
-      timeVal = timeVal + (nextPt.time - timeVal) * remainder;
-    }
+    return getPlaybackPointInfo(pt, nextPt, remainder, tripSummary, selectedDayFilter);
+  }, [activePoints, progress, tripSummary, selectedDayFilter]);
 
-    let typeVal = pt?.type;
-    const isAirplane = typeVal === 'FLYING' || (nextPt && getHaversineDistance(pt.lat, pt.lng, nextPt.lat, nextPt.lng) > 50000);
-    if (isAirplane) {
-      typeVal = 'FLYING';
+  const currentFilterDistanceMeters = useMemo(() => {
+    if (selectedDayFilter === 'ALL') {
+      return tripSummary?.totalDistanceMeters || 0;
     }
+    let dist = 0;
+    for (const act of activeActivities) {
+      if (act.path && Array.isArray(act.path) && act.path.length >= 2) {
+        for (let i = 0; i < act.path.length - 1; i++) {
+          const p1 = act.path[i];
+          const p2 = act.path[i + 1];
+          if (p1 && p2 && p1.lat != null && p1.lng != null && p2.lat != null && p2.lng != null) {
+            dist += getHaversineDistance(p1.lat, p1.lng, p2.lat, p2.lng);
+          }
+        }
+      }
+    }
+    return dist;
+  }, [tripSummary, selectedDayFilter, activeActivities]);
 
-    return getPlaybackIndicatorParts(timeVal, typeVal);
-  })();
+  const currentFilterModes = useMemo(() => {
+    if (selectedDayFilter === 'ALL') {
+      return tripSummary?.usedModes || [];
+    }
+    return [...new Set(activeActivities.map(a => a.type).filter(Boolean))];
+  }, [tripSummary, selectedDayFilter, activeActivities]);
 
   return (
     <div className="timeline-container">
@@ -719,31 +839,54 @@ export default function TimelineVisualizer() {
             <input type="file" accept=".json" onChange={handleFileUpload} style={{ display: 'none' }} />
           </label>
           {uploadedFileName && (
-            <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: 'var(--accent-teal, #10b981)', wordBreak: 'break-all' }}>
+            <div style={{ marginTop: '0.25rem', fontSize: '0.8rem', color: 'var(--accent-teal, #2dd4bf)', wordBreak: 'break-all' }}>
               📄 <strong>선택된 파일:</strong> {uploadedFileName}
             </div>
           )}
         </div>
 
         {tripSummary && (
+          <div className="glass-input-card trip-filter-card">
+            <h3>일정 선택</h3>
+            <select
+              value={selectedDayFilter}
+              onChange={handleDayFilterChange}
+              className="timeline-select day-filter-select"
+              aria-label="일정 선택"
+            >
+              <option value="ALL">
+                🌟 전체 일정 요약 ({tripSummary.totalDays}일간)
+              </option>
+              {tripSummary.dateList && tripSummary.dateList.map((d, idx) => (
+                <option key={d} value={d}>
+                  Day {idx + 1} ({d.slice(5).replace('-', '.')})
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {tripSummary && (
           <div className="glass-input-card trip-summary-card">
-            <h3>전체 여행 일정 요약</h3>
+            <h3>{selectedDayFilter === 'ALL' ? '전체 여행 일정 요약' : `Day ${tripSummary.dateList ? tripSummary.dateList.indexOf(selectedDayFilter) + 1 : 1} 일정 요약`}</h3>
             <div className="summary-field">
-              <span className="summary-title">🗓️ 여행 기간:</span>
+              <span className="summary-title">🗓️ {selectedDayFilter === 'ALL' ? '여행 기간:' : '선택 날짜:'}</span>
               <span className="summary-content">
-                {tripSummary.startDate} ~ {tripSummary.endDate} (총 {tripSummary.totalDays}일간)
+                {selectedDayFilter === 'ALL'
+                  ? `${tripSummary.startDate} ~ ${tripSummary.endDate} (총 ${tripSummary.totalDays}일간)`
+                  : `${selectedDayFilter} (Day ${tripSummary.dateList ? tripSummary.dateList.indexOf(selectedDayFilter) + 1 : 1})`}
               </span>
             </div>
             <div className="summary-field">
-              <span className="summary-title">📏 총 이동 거리:</span>
+              <span className="summary-title">📏 이동 거리:</span>
               <span className="summary-content">
-                {(tripSummary.totalDistanceMeters / 1000).toFixed(1)} km
+                {(currentFilterDistanceMeters / 1000).toFixed(1)} km
               </span>
             </div>
             <div className="summary-field">
               <span className="summary-title">🚗 이용된 이동 수단:</span>
               <div className="mode-badges-container">
-                {tripSummary.usedModes.map(mode => (
+                {currentFilterModes.map(mode => (
                   <span
                     key={mode}
                     className="mode-badge"
@@ -764,7 +907,11 @@ export default function TimelineVisualizer() {
           <div className="glass-input-card">
             <h3>비디오 내보내기 설정</h3>
             <label style={{ fontSize: '0.85rem', color: 'var(--text-secondary)' }}>출력 형식</label>
-            <select value={exportFormat} onChange={(e) => setExportFormat(e.target.value)} className="timeline-select">
+            <select
+              value={exportFormat}
+              onChange={(e) => setExportFormat(e.target.value)}
+              className="timeline-select export-format-select"
+            >
               <option value="gif">GIF 이미지</option>
               <option value="mp4">
                 {typeof MediaRecorder !== 'undefined' && typeof MediaRecorder.isTypeSupported === 'function' && MediaRecorder.isTypeSupported('video/mp4')
@@ -774,7 +921,11 @@ export default function TimelineVisualizer() {
             </select>
 
             <label style={{ marginTop: '0.5rem', fontSize: '0.85rem', color: 'var(--text-secondary)' }}>영상 재생 길이</label>
-            <select value={exportDuration} onChange={(e) => setExportDuration(Number(e.target.value))} className="timeline-select">
+            <select
+              value={exportDuration}
+              onChange={(e) => setExportDuration(Number(e.target.value))}
+              className="timeline-select export-duration-select"
+            >
               <option value={30}>30초</option>
               <option value={60}>60초 (기본값)</option>
               <option value={90}>90초</option>
@@ -837,11 +988,10 @@ export default function TimelineVisualizer() {
                 </button>
                 {activePoints.length > 0 && (
                   <div className="current-playback-indicator fixed-width-display">
-                    <span className="indicator-date">{currentPointData.dateStr}</span>
-                    <span className="indicator-sep">·</span>
-                    <span className="indicator-time">{currentPointData.timeStr}</span>
+                    <span className="indicator-day-badge indicator-date">{currentPointData.dayBadge}</span>
                     <span className="indicator-sep">·</span>
                     <span className="indicator-mode">{currentPointData.emoji} {currentPointData.label}</span>
+                    <span className="indicator-time" style={{ display: 'none' }}>{currentPointData.timeStr}</span>
                   </div>
                 )}
               </div>
@@ -852,7 +1002,11 @@ export default function TimelineVisualizer() {
                   {cameraMode === 'follow' ? '카메라 추적 온' : '전체 보기'}
                 </button>
                 
-                <select value={speedMultiplier} onChange={(e) => setSpeedMultiplier(Number(e.target.value))} className="timeline-select">
+                <select
+                  value={speedMultiplier}
+                  onChange={(e) => setSpeedMultiplier(Number(e.target.value))}
+                  className="timeline-select playback-speed-select"
+                >
                   <option value={0.25}>0.25x (매우 느리게)</option>
                   <option value={0.5}>0.5x (느리게)</option>
                   <option value={1}>1x (보통 · 기본값)</option>
