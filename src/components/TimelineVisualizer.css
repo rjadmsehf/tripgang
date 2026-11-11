@@ -16,10 +16,10 @@
 }
 
 .timeline-sidebar {
-  width: 210px;
-  min-width: 200px;
-  max-width: 215px;
-  padding: 0.75rem 0.6rem;
+  width: 250px;
+  min-width: 240px;
+  max-width: 260px;
+  padding: 0.85rem 0.75rem;
   background-color: #18181b;
   border-right: 1px solid #27272a;
   display: flex;
@@ -431,15 +431,17 @@
    Right Itinerary Panel & Cards (3-Column Layout)
    ========================================================= */
 
-.timeline-itinerary-panel {
-  width: 280px;
-  min-width: 270px;
-  max-width: 285px;
+.timeline-itinerary-panel,
+.itinerary-panel {
+  width: 380px;
+  min-width: 360px;
+  max-width: 400px;
   padding: 0.75rem 0.6rem;
   background-color: #18181b;
   border-left: 1px solid #27272a;
   display: flex;
   flex-direction: column;
+  height: 100%;
   overflow-y: auto;
   box-sizing: border-box;
   flex-shrink: 0;
